@@ -6,19 +6,19 @@
 <title>PL Value — what a player is worth, and how sure we are</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
 
 <header class="masthead">
-  <a class="mark" href="/" aria-label="PL Value, home">
-    <span class="mark__pl">PL</span><span class="mark__value">VALUE</span>
+  <a class="mark" href="#" aria-label="PL Value, home">
+    <span class="mark__badge">PL</span><span class="mark__word">Value</span>
   </a>
 
   <search class="finder">
     <label class="visually-hidden" for="q">Search a player</label>
-    <input id="q" type="search" placeholder="Search a player" autocomplete="off"
+    <input id="q" type="search" placeholder="Search any of 540 players" autocomplete="off"
            role="combobox" aria-expanded="false" aria-controls="suggestions" aria-autocomplete="list">
     <ul id="suggestions" class="suggestions" role="listbox" aria-label="Matching players" hidden></ul>
   </search>
@@ -28,32 +28,74 @@
 
 <main id="main">
 
-  <section class="board" id="board" aria-labelledby="board-title">
+  <!-- board: the two disagreement tables + the full squad list -->
+  <section class="board" id="board">
     <div class="lede">
-      <h1 id="board-title">The model disagrees most<br>about these players.</h1>
+      <h1>Every valuation<br>is a range.</h1>
       <p class="lede__body">
-        It values a player from how much they play, what they score, their age,
-        position and club — then sets that against the market. Search anyone above,
-        or start with the widest gaps.
+        The model values a Premier League player from how much they play, what
+        they score, their age, position and club. It reports the range it has
+        earned — not a single number it cannot support.
       </p>
     </div>
 
-    <div class="tables">
-      <section class="table" aria-labelledby="under-title">
-        <h2 class="table__title" id="under-title">
-          <span class="dot dot--under" aria-hidden="true"></span>Worth more than the market says
-        </h2>
-        <ol class="ranks" id="underrated"></ol>
-      </section>
+    <nav class="views" aria-label="Views">
+      <button class="view" type="button" data-view="gaps" aria-pressed="true">Where it disagrees</button>
+      <button class="view" type="button" data-view="all" aria-pressed="false">All players</button>
+    </nav>
 
-      <section class="table" aria-labelledby="over-title">
-        <h2 class="table__title" id="over-title">
-          <span class="dot dot--over" aria-hidden="true"></span>Worth less than the market says
-        </h2>
-        <ol class="ranks" id="overrated"></ol>
-      </section>
+    <div id="view-gaps">
+      <div class="tables">
+        <section class="table" aria-labelledby="under-title">
+          <h2 class="table__title" id="under-title">
+            <span class="swatch swatch--under" aria-hidden="true"></span>Model asks more than the market
+          </h2>
+          <ol class="ranks" id="underrated"></ol>
+        </section>
+
+        <section class="table" aria-labelledby="over-title">
+          <h2 class="table__title" id="over-title">
+            <span class="swatch swatch--over" aria-hidden="true"></span>Model asks less than the market
+          </h2>
+          <ol class="ranks" id="overrated"></ol>
+        </section>
+      </div>
+      <p class="note" id="tables-note"></p>
     </div>
-    <p class="tables__note" id="tables-note"></p>
+
+    <div id="view-all" hidden>
+      <div class="filters">
+        <label class="field">
+          <span class="field__label">Club</span>
+          <select id="filter-club"><option value="">Every club</option></select>
+        </label>
+        <label class="field">
+          <span class="field__label">Position</span>
+          <select id="filter-position"><option value="">Every position</option></select>
+        </label>
+        <label class="field">
+          <span class="field__label">Sort by</span>
+          <select id="sort">
+            <option value="value">Market value</option>
+            <option value="predicted">Model estimate</option>
+            <option value="gap">Biggest gap</option>
+            <option value="name">Name</option>
+          </select>
+        </label>
+        <p class="filters__count" id="filter-count"></p>
+      </div>
+
+      <div class="grid" role="table" aria-label="All players">
+        <div class="grid__head" role="row">
+          <span role="columnheader">Player</span>
+          <span role="columnheader">Market</span>
+          <span role="columnheader">Model</span>
+          <span role="columnheader">Gap</span>
+        </div>
+        <div id="grid-rows"></div>
+      </div>
+      <p class="note" id="grid-note"></p>
+    </div>
   </section>
 
   <article class="player" id="player" hidden aria-live="polite"></article>
@@ -63,9 +105,11 @@
 <footer class="colophon">
   <p id="colophon-model"></p>
   <p>
-    Market values scraped from Transfermarkt. Playing record from the Fantasy
-    Premier League API, its season archive, and Understat. Estimates are the
-    model's own, not advice.
+    Market values are Transfermarkt's own published figures, scraped from its
+    squad pages — community estimates moderated by its editors, not transfer
+    fees actually paid. Playing record comes from the Fantasy Premier League
+    API, its season archive, and Understat. Estimates are the model's own, and
+    are not advice.
   </p>
 </footer>
 
