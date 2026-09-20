@@ -19,10 +19,10 @@ stats, and lets you compare the model's estimate against their actual value.
   and nationality, are scraped from Transfermarkt's current squad pages.
 - A scikit-learn **linear regression** pipeline (on log-transformed value,
   since transfer values are heavily right-skewed) is trained on the merged
-  dataset. Features: age and age² (value peaks mid-20s), this season's
-  minutes/starts share, career minutes share and goals+assists per 90 (from
-  Premier League history where it exists, otherwise from other big leagues),
-  data-coverage flags, position and club.
+  dataset. Features: age and age², this season's minutes share, the share of
+  minutes played across past seasons and in the newest one alone, past-season
+  goals+assists per 90 (from Premier League history where it exists, otherwise
+  from other big leagues), data-coverage flags, position and club.
 
 ## Layout
 
@@ -81,7 +81,7 @@ seeds at this dataset size.
 | + past-season goals+assists **per 90** | 0.65 | €8.2m | €19.3m |
 | + non-PL record as a **fallback** | 0.67 | €8.0m | €19.2m |
 | + PL history from the season archive | 0.69 | €7.9m | €19.1m |
-| + **the newest season on its own** | **0.70** | **€7.5m** | **€17.1m** |
+| + **the newest season on its own** | **0.70** | **€7.4m** | **€16.7m** |
 
 Three findings worth keeping in mind:
 
@@ -109,6 +109,33 @@ Three findings worth keeping in mind:
 Training weights players by √value. Plain log-value regression optimises *relative*
 error, so cheap players outvote the stars; weighting lowers euro MAE overall and for
 the top 10%, at some cost in log-R².
+
+### The fitted model
+
+```
+log(1 + value) = 16.59
+   + 2.45·z(age) − 3.10·z(age²)
+   + 0.14·z(minutes_share)                              this season
+   + 0.27·z(career_minutes_share) + 0.17·z(recent_minutes_share)
+   + 0.17·z(career_gi_per90)
+   + 0.04·z(has_fpl_record) + 0.06·z(has_hist_record) − 0.18·z(has_any_history)
+   + position effect + club effect
+```
+
+`z(x)` is the standardised feature. Club effects run from ×2.2 (Arsenal) to ×0.6
+(Hull City) against the baseline; goalkeepers sit ×0.68 against attacking
+midfielders. The age term alone peaks at 21, earlier than the raw data's mid-20s,
+because the minutes features already carry most of what age would otherwise say.
+
+Two coefficients are negative on purpose. `age²` is the downward half of the
+curve. `has_any_history` separates a player whose zeros mean "no data" from one
+whose record exists and says they barely played — dropping it costs real accuracy
+(MAE €7.35m → €7.58m), so the sign is doing a job.
+
+`starts_share` used to be a feature and was removed: it correlated 0.98 with
+minutes_share (VIF 33), which split one effect across two coefficients and left
+starts with a negative sign it did not deserve. Removing it changed nothing
+measurable and made the rest readable.
 
 ### The model shrinks toward the middle
 
