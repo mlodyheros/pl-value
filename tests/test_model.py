@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from src.features import prepare_features
-from src.model import build_pipeline, train
+from src.model import build_pipeline, cross_validate_model, train, value_weights
 
 
 def _synthetic_df(n: int = 40, seed: int = 0) -> pd.DataFrame:
@@ -49,3 +49,25 @@ def test_train_produces_sane_metrics_and_predictions():
     preds = pipeline.predict(sample)
     assert preds.shape == (3,)
     assert np.all(np.isfinite(preds))
+
+
+def test_value_weights_grow_with_sqrt_of_value():
+    weights = value_weights(np.array([1e6, 4e6, 9e6, 100e6]))
+
+    assert np.all(np.diff(weights) > 0)
+    # sqrt scaling: 4x the value -> 2x the weight
+    assert np.isclose(weights[1] / weights[0], 2.0)
+
+
+def test_cross_validate_model_reports_all_metrics():
+    metrics = cross_validate_model(_synthetic_df(n=60), n_splits=3)
+
+    assert set(metrics) == {
+        "cv_r2_log",
+        "cv_mae_eur",
+        "cv_rmse_eur",
+        "cv_top_decile_mae_eur",
+        "cv_top_decile_ratio",
+    }
+    assert all(np.isfinite(v) for v in metrics.values())
+    assert metrics["cv_top_decile_ratio"] > 0

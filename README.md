@@ -49,12 +49,20 @@ python -m src.predict --age 24 --position "Centre-Forward" --club "Manchester Ci
 
 ## Current performance
 
-5-fold cross-validated on ~540 players: **R² ≈ 0.55** (on log value), **MAE ≈ €10.3m**.
+5-fold cross-validated on ~540 players: **R² ≈ 0.51** (on log value), **MAE ≈ €9.8m**.
 Trust the CV numbers over the single 80/20 split, which swings by ~0.1 R² between
-seeds at this dataset size. Tree models (random forest, gradient boosting) and
-position×stat interaction features were tried and did not beat the linear model.
-The model systematically under-predicts the very highest values (e.g. Haaland),
-which stats alone don't explain.
+seeds at this dataset size.
+
+Training weights players by √value. Plain log-value regression optimises
+*relative* error, so cheap players outvote the stars and the top 10% of players
+were predicted ~24% too low. The weighting cut overall MAE from €10.3m to €9.8m
+and top-decile MAE from €32m to €26m, at the cost of ~0.04 log-R². The model
+still under-predicts the very top (top-10% predicted/actual ≈ 0.80; Haaland comes
+out at ~€166m vs €220m): stats alone don't capture star premium.
+
+Also tried, and rejected: random forest / gradient boosting, position×stat
+interactions, sqrt/power target transforms (unstable on log-scale R²), boosting
+on residuals, and Duan smearing (removes the bias but raises overall MAE to €11.6m).
 
 ## Known limitations
 
