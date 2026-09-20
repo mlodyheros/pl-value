@@ -27,8 +27,8 @@ stats, and lets you compare the model's estimate against their actual value.
 ## Layout
 
 ```
-backend/     data pipeline + model (all current work)
-frontend/    not built yet - see frontend/README.md
+backend/     data pipeline, model, and the HTTP API
+frontend/    single-page interface, no build step
 ```
 
 ## Setup
@@ -111,6 +111,21 @@ actual output), this season's xG/xA and defensive stats (still noise after 4 gam
 position×stat interactions, power target transforms, boosting on residuals, Duan
 smearing, and FPL price (better log-R², much worse euro error).
 
+## The app
+
+```bash
+uvicorn backend.api:app --port 8000
+```
+
+Then open http://localhost:8000: search any player, or start from the players
+the model and the market disagree about most. `backend/api.py` is the only thing
+the frontend talks to, and it serves **out-of-fold** predictions - every player
+is scored by a model fitted without them, because a model asked about a player it
+trained on flatters itself, and "is this player overvalued?" is exactly the
+question that flattery would corrupt.
+
+See `frontend/README.md` for the interface itself.
+
 ## How confident is a prediction?
 
 Every prediction carries a range, measured from the model's own out-of-fold
@@ -190,6 +205,7 @@ backend/
   evaluate.py                     predicted-vs-actual and residual plots
   predict.py                      CLI to compare prediction vs actual
   confidence.py                   measured prediction ranges by data coverage
+  api.py                          HTTP API; the only thing the frontend calls
   sources/
     fpl_client.py                 FPL API: clubs and this season's stats
     fpl_archive_client.py         past PL seasons, one CSV per season (cached)
@@ -198,7 +214,8 @@ backend/
     names.py                      name normalisation shared by the joins
     build_dataset.py              joins the sources into one CSV
   tests/                          unit tests (no network calls)
-frontend/                         not built yet
+frontend/
+  index.html, assets/             single page, no build step
 notebooks/                        exploration and experiment log (executed)
 data/
   raw/                            cached API/HTML responses (gitignored)
