@@ -19,11 +19,11 @@
   --raised:     #FFFFFF;
   --ink:        #101C18;
   --ink-soft:   #46564F;
-  --muted:      #6E7E77;
+  --muted:      #5F6E68;  /* 5.1:1 on paper; #6E7E77 missed AA at 4.1:1 */
   --rule:       #DDE4DF;
   --rule-firm:  #C3CEC7;
 
-  --under:      #BE5A0E;  /* model asks more than the market */
+  --under:      #A64B06;  /* 5.5:1; model asks more than the market */
   --over:       #17539E;  /* model asks less */
   --pitch:      #0A6E45;
 
@@ -353,6 +353,8 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 
 .player__meta { margin-top: 0.6rem; color: var(--ink-soft); font-size: 0.93rem; }
 
+.player__source { margin-top: 0.4rem; max-width: 40rem; color: var(--muted); font-size: 0.82rem; }
+
 /* --- the band: the one thing this page is for -------------------------- */
 
 .band { margin-top: clamp(2.5rem, 5vw, 3.5rem); max-width: 60rem; }
@@ -456,6 +458,14 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .verdict__detail em { font-style: normal; font-weight: 600; color: var(--ink); }
 .verdict__confidence { margin-top: 0.5rem; color: var(--muted); font-size: 0.88rem; }
 
+.verdict__caveat {
+  margin-top: 0.85rem;
+  padding-left: 0.9rem;
+  border-left: 2px solid var(--under);
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
 /* --- panels: seasons, peers, evidence ---------------------------------- */
 
 .panels {
@@ -523,7 +533,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 }
 
 .peer__ends { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); }
-.peer__body { margin-top: 0.9rem; color: var(--ink-soft); font-size: 0.88rem; }
+.panel__body { margin-top: 0.9rem; color: var(--ink-soft); font-size: 0.88rem; }
 
 .evidence__row {
   display: grid;
@@ -551,6 +561,75 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 }
 
 .notice { padding: var(--rhythm) var(--gutter); color: var(--ink-soft); }
+.notice[hidden] { display: none; }
+
+.more {
+  display: block;
+  width: 100%;
+  margin-top: 1rem;
+  padding: 0.7rem;
+  background: var(--raised);
+  border: 1px solid var(--rule-firm);
+  border-radius: 4px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.more:hover { background: color-mix(in srgb, var(--pitch) 6%, transparent); }
+.more[hidden] { display: none; }
+
+/* --- compare ------------------------------------------------------------ */
+
+.compare { padding: var(--rhythm) var(--gutter) calc(var(--rhythm) * 1.3); }
+.compare[hidden] { display: none; }
+
+.compare__title {
+  font-size: clamp(1.8rem, 5vw, 3rem);
+  font-weight: 800;
+  font-stretch: 92%;
+  letter-spacing: -0.028em;
+}
+
+.compare__lead { margin-top: 0.7rem; color: var(--ink-soft); font-size: 0.95rem; max-width: 42rem; }
+
+.compare__rows { margin-top: clamp(2rem, 4vw, 3rem); max-width: 62rem; display: grid; gap: 2.4rem; }
+
+.compare__row { display: grid; gap: 0.7rem; }
+
+.compare__who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+.compare__name { font-family: var(--display); font-size: 1.25rem; font-weight: 700; }
+.compare__meta { color: var(--muted); font-size: 0.85rem; }
+.compare__figures { margin-left: auto; font-family: var(--figure); font-size: 0.85rem; color: var(--ink-soft); }
+
+.compare__scale {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--figure);
+  font-size: 0.72rem;
+  color: var(--muted);
+  border-top: 1px solid var(--rule-firm);
+  padding-top: 0.5rem;
+}
+
+.picker { margin-top: 2rem; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+.picker__label { color: var(--muted); font-size: 0.85rem; }
+
+.picker input {
+  flex: 1 1 16rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--raised);
+  border: 1px solid var(--rule-firm);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.9rem;
+}
+.picker input:focus { border-color: var(--pitch); }
 
 /* --- motion ------------------------------------------------------------ */
 

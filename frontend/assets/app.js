@@ -19,7 +19,15 @@ const nodes = {
   viewGaps: el("view-gaps"),
   viewAll: el("view-all"),
   colophon: el("colophon-model"),
+  compare: el("compare"),
+  loading: el("loading"),
+  showAll: el("show-all"),
 };
+
+// Rows rendered before the "show all" button appears. 540 at once is a wall,
+// especially on a phone.
+const FIRST_PAGE = 60;
+let gridLimit = FIRST_PAGE;
 
 let everyone = [];
 let highlighted = -1;
@@ -41,6 +49,14 @@ const count = (n, word) => `${n.toLocaleString("en-GB")} ${word}${n === 1 ? "" :
 const sentence = (text) => text.charAt(0).toUpperCase() + text.slice(1).replace(" - ", " — ");
 const seasonLabel = (year) => `${year}/${String(year + 1).slice(-2)}`;
 
+/** "Central Midfield" -> "central midfielder", "Centre-Back" -> "centre-back". */
+function positionSingular(position) {
+  const lower = position.toLowerCase();
+  return lower.endsWith("midfield") ? `${lower}er` : lower;
+}
+
+const positionPlural = (position) => `${positionSingular(position)}s`;
+
 async function api(path) {
   const response = await fetch(path);
   if (!response.ok) throw new Error(`${path} returned ${response.status}`);
@@ -57,7 +73,14 @@ function matches(term) {
   for (const p of everyone) {
     const name = p.name.toLowerCase();
     if (name.startsWith(q)) starts.push(p);
-    else if (name.includes(q) || p.club.toLowerCase().includes(q)) contains.push(p);
+    else if (
+      name.includes(q) ||
+      p.club.toLowerCase().includes(q) ||
+      p.position.toLowerCase().includes(q) ||
+      (p.nationality ?? "").toLowerCase().includes(q)
+    ) {
+      contains.push(p);
+    }
   }
   return [...starts, ...contains].slice(0, 8);
 }
@@ -150,13 +173,18 @@ function band(player) {
     ? `<div class="band__range" style="left:${pct(range.lowEur)}%;right:${100 - pct(range.highEur)}%"></div>`
     : "";
 
+  const spoken = range
+    ? `Model estimate ${money(model)}. The ${Math.round(player.confidence.level * 100)}% range runs from ${money(range.lowEur)} to ${money(range.highEur)}. The market values this player at ${money(market)}, ${player.marketInRange ? "inside" : "outside"} that range.`
+    : `Model estimate ${money(model)}. The market values this player at ${money(market)}. No calibrated range available.`;
+
   return `
-    <section class="band" aria-label="Valuation range">
-      <header class="band__head">
+    <section class="band" role="img" aria-label="${spoken}">
+      <p class="visually-hidden">${spoken}</p>
+      <header class="band__head" aria-hidden="true">
         <span>What the model allows</span>
         <span>${range ? `${Math.round(player.confidence.level * 100)}% range` : "range not calibrated"}</span>
       </header>
-      <div class="band__track">
+      <div class="band__track" aria-hidden="true">
         ${rangeLayer}
         <div class="band__marker band__marker--model" style="left:${pct(model)}%">
           <div class="band__flag band__flag--top"><span>Model</span>${money(model)}</div>
@@ -165,7 +193,7 @@ function band(player) {
           <div class="band__flag band__flag--bottom">${money(market)}<span>Market</span></div>
         </div>
       </div>
-      <div class="band__scale"><span>€0</span><span>${money(top)}</span></div>
+      <div class="band__scale" aria-hidden="true"><span>€0</span><span>${money(top)}</span></div>
     </section>`;
 }
 
@@ -203,11 +231,41 @@ function verdict(player) {
     <section class="verdict">
       <p class="verdict__line">${headline}</p>
       <p class="verdict__detail">${detail}</p>
+      ${caveat(player)}
       <p class="verdict__confidence">${sentence(player.confidence.summary ?? player.confidence.label)}.</p>
     </section>`;
 }
 
+// The model almost never values anyone under about €2m, so below that its
+// estimate describes its own floor rather than the player.
+const MODEL_FLOOR_EUR = 2_000_000;
+
+function caveat(player) {
+  const minutes =
+    player.evidence.thisSeason.minutes +
+    player.evidence.premierLeague.minutes +
+    player.evidence.otherLeagues.minutes;
+
+  if (minutes === 0) {
+    return `<p class="verdict__caveat">This player has no minutes on record anywhere we look, so the
+      estimate rests on age, position and club alone. Treat it as a starting point, not a reading.</p>`;
+  }
+  if (player.marketValueEur < MODEL_FLOOR_EUR) {
+    return `<p class="verdict__caveat">The model rarely values anyone below about ${money(MODEL_FLOOR_EUR)},
+      so for the cheapest players the gap says more about that floor than about this one.</p>`;
+  }
+  return "";
+}
+
 /* --- panels ------------------------------------------------------------ */
+
+function contractLine(player) {
+  if (!player.contractExpiry) return "";
+  const expiry = new Date(player.contractExpiry);
+  const years = (expiry - new Date()) / (365.25 * 24 * 3600 * 1000);
+  const when = expiry.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+  return ` · contract to ${when}${years < 1 ? " (under a year)" : ""}`;
+}
 
 function seasonsPanel(player) {
   const seasons = player.seasons ?? [];
@@ -236,25 +294,41 @@ function seasonsPanel(player) {
     <section>
       <h2 class="panel__title">Minutes by season</h2>
       <div class="seasons">${rows}</div>
-      <p class="peer__body">${league === "Premier League" ? "Premier League." : `Outside the Premier League — ${league}.`}</p>
+      <p class="panel__body">${league === "Premier League" ? "Premier League." : `Outside the Premier League — ${league}.`}</p>
     </section>`;
 }
 
+const PEERS_NEEDED = 5;
+
 function peersPanel(player) {
   const peers = player.peers;
+  const plural = positionPlural(peers.position);
+  const title = `<h2 class="panel__title">Against other ${plural}</h2>`;
+
+  // A percentile drawn from one or two players is theatre, not information.
+  if (peers.count < PEERS_NEEDED) {
+    const others = peers.count - 1;
+    return `<section>${title}
+      <p class="panel__empty">
+        ${others === 0
+          ? `The only ${positionSingular(peers.position)} in the league, so there is nobody to compare against.`
+          : `Only ${count(others, "other " + positionSingular(peers.position))} in the league — too few to place this value among.`}
+      </p></section>`;
+  }
+
   const percent = Math.round(peers.valuePercentile * 100);
-  const role = peers.position.toLowerCase();
+  // Keep the label inside the track when the pin sits at either end.
+  const shift = percent > 88 ? "-100%" : percent < 12 ? "0%" : "-50%";
   return `
-    <section>
-      <h2 class="panel__title">Against other ${role}s</h2>
+    <section>${title}
       <div class="peer__scale">
         <div class="peer__pin" style="left:${percent}%">
-          <span class="peer__pin-label">${money(player.marketValueEur)}</span>
+          <span class="peer__pin-label" style="transform:translateX(${shift})">${money(player.marketValueEur)}</span>
         </div>
       </div>
       <div class="peer__ends"><span>Cheapest</span><span>Most valuable</span></div>
-      <p class="peer__body">
-        Worth more than ${percent}% of the ${peers.count} ${role}s in the league.
+      <p class="panel__body">
+        Worth more than ${percent}% of the ${peers.count} ${plural} in the league.
         The median one is valued at ${money(peers.medianValueEur)}.
       </p>
     </section>`;
@@ -303,8 +377,10 @@ function evidencePanel(player) {
 
 function showBoard() {
   nodes.player.hidden = true;
+  nodes.compare.hidden = true;
   nodes.board.hidden = false;
   nodes.player.innerHTML = "";
+  nodes.compare.innerHTML = "";
 }
 
 async function open(id) {
@@ -322,24 +398,115 @@ async function open(id) {
     return;
   }
 
+  const cameFrom = nodes.viewAll.hidden ? "Where it disagrees" : "All players";
   nodes.player.innerHTML = `
-    <button class="back" type="button">← All players</button>
+    <button class="back" type="button">← ${cameFrom}</button>
     <h1 class="player__name">${player.name}</h1>
-    <p class="player__meta">${player.position} · ${player.age} · ${player.nationality} · ${player.club}</p>
+    <p class="player__meta">${player.position} · ${player.age} · ${player.nationality} · ${player.club}${contractLine(player)}</p>
+    <p class="player__source">“Market” is ${player.marketValueSource ?? "Transfermarkt"}’s published valuation — a community estimate moderated by its editors, not a fee anyone paid.</p>
     ${band(player)}
     ${verdict(player)}
     <div class="panels">
       ${seasonsPanel(player)}
       ${peersPanel(player)}
       ${evidencePanel(player)}
+    </div>
+    <div class="picker">
+      <label class="picker__label" for="compare-with">Put this next to</label>
+      <input id="compare-with" list="compare-options" placeholder="another player">
+      <datalist id="compare-options"></datalist>
     </div>`;
 
   nodes.player.querySelector(".back").addEventListener("click", () => {
-    location.hash = "";
+    location.hash = nodes.viewAll.hidden ? "" : gridHash();
+  });
+  wirePicker(nodes.player, player.id);
+
+  nodes.board.hidden = true;
+  nodes.compare.hidden = true;
+  nodes.player.hidden = false;
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+/* --- compare ----------------------------------------------------------- */
+
+/** A second player, chosen by name, opens the two-up view. */
+function wirePicker(root, currentId) {
+  const input = root.querySelector(".picker input");
+  const list = root.querySelector(".picker datalist");
+  if (!input) return;
+
+  for (const player of everyone) {
+    if (player.id === currentId) continue;
+    const option = document.createElement("option");
+    option.value = `${player.name} — ${player.club}`;
+    option.dataset.id = String(player.id);
+    list.appendChild(option);
+  }
+
+  input.addEventListener("change", () => {
+    const chosen = [...list.options].find((option) => option.value === input.value);
+    if (chosen) location.hash = `c${currentId},${chosen.dataset.id}`;
+  });
+}
+
+function compareRow(player, top) {
+  const pct = (value) => Math.min(100, (value / top) * 100);
+  const range = player.range;
+  const rangeLayer = range
+    ? `<div class="band__range" style="left:${pct(range.lowEur)}%;right:${100 - pct(range.highEur)}%"></div>`
+    : "";
+
+  return `
+    <div class="compare__row">
+      <div class="compare__who">
+        <span class="compare__name">${player.name}</span>
+        <span class="compare__meta">${player.club} · ${player.position} · ${player.age}</span>
+        <span class="compare__figures">market ${money(player.marketValueEur)} · model ${money(player.predictedEur)}</span>
+      </div>
+      <div class="band__track">
+        ${rangeLayer}
+        <div class="band__marker band__marker--model" style="left:${pct(player.predictedEur)}%"></div>
+        <div class="band__marker band__marker--market" style="left:${pct(player.marketValueEur)}%"></div>
+      </div>
+    </div>`;
+}
+
+async function compare(leftId, rightId) {
+  closeSuggestions();
+  let pair;
+  try {
+    pair = await Promise.all([api(`/api/players/${leftId}`), api(`/api/players/${rightId}`)]);
+  } catch {
+    nodes.compare.innerHTML = `<p class="notice">Couldn’t load both players.</p>`;
+    nodes.board.hidden = true;
+    nodes.player.hidden = true;
+    nodes.compare.hidden = false;
+    return;
+  }
+
+  // One scale for both, or the bands would not be comparable.
+  const top = Math.max(...pair.map((p) => Math.max(p.range?.highEur ?? 0, p.marketValueEur, p.predictedEur))) * 1.08;
+
+  nodes.compare.innerHTML = `
+    <button class="back" type="button">← ${pair[0].name}</button>
+    <h1 class="compare__title">${pair[0].name} and ${pair[1].name}</h1>
+    <p class="compare__lead">
+      Both ranges on one scale. The darker line is the model’s estimate, the
+      orange one is the market.
+    </p>
+    <div class="compare__rows">
+      ${pair.map((p) => compareRow(p, top)).join("")}
+      <div class="compare__scale"><span>€0</span><span>${money(top)}</span></div>
+    </div>`;
+
+  nodes.compare.querySelector(".back").addEventListener("click", () => {
+    location.hash = `p${leftId}`;
   });
 
   nodes.board.hidden = true;
-  nodes.player.hidden = false;
+  nodes.player.hidden = true;
+  nodes.compare.hidden = false;
   window.scrollTo({ top: 0, behavior: "instant" });
 }
 
@@ -382,21 +549,27 @@ function renderGrid() {
   nodes.gridRows.innerHTML = "";
 
   if (!rows.length) {
+    nodes.showAll.hidden = true;
     nodes.gridRows.innerHTML = `<p class="panel__empty">No player matches both filters. Widen one of them.</p>`;
     return;
   }
 
+  const shown = rows.slice(0, gridLimit);
+  const remaining = rows.length - shown.length;
+  nodes.showAll.hidden = remaining === 0;
+  if (remaining) nodes.showAll.textContent = `Show the other ${remaining}`;
+
   const fragment = document.createDocumentFragment();
-  for (const player of rows) {
+  for (const player of shown) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "grid__row";
     button.setAttribute("role", "row");
     button.innerHTML = `
-      <span><span class="grid__name"></span><span class="grid__meta"></span></span>
-      <span class="grid__figure"></span>
-      <span class="grid__figure"></span>
-      <span class="grid__gap grid__gap--${player.gapPct > 0 ? "under" : "over"}"></span>`;
+      <span role="cell"><span class="grid__name"></span><span class="grid__meta"></span></span>
+      <span class="grid__figure" role="cell"></span>
+      <span class="grid__figure" role="cell"></span>
+      <span class="grid__gap grid__gap--${player.gapPct > 0 ? "under" : "over"}" role="cell"></span>`;
     const figures = button.querySelectorAll(".grid__figure");
     button.querySelector(".grid__name").textContent = player.name;
     button.querySelector(".grid__meta").textContent = `${player.club} · ${player.position}`;
@@ -409,19 +582,52 @@ function renderGrid() {
   nodes.gridRows.appendChild(fragment);
 }
 
-function switchView(view) {
+function gridHash() {
+  const params = new URLSearchParams();
+  if (nodes.filterClub.value) params.set("club", nodes.filterClub.value);
+  if (nodes.filterPosition.value) params.set("position", nodes.filterPosition.value);
+  if (nodes.sort.value !== "value") params.set("sort", nodes.sort.value);
+  const query = params.toString();
+  return query ? `all?${query}` : "all";
+}
+
+function applyGridHash(query) {
+  const params = new URLSearchParams(query);
+  nodes.filterClub.value = params.get("club") ?? "";
+  nodes.filterPosition.value = params.get("position") ?? "";
+  nodes.sort.value = params.get("sort") ?? "value";
+}
+
+function switchView(view, { push = true } = {}) {
   for (const button of document.querySelectorAll(".view")) {
     button.setAttribute("aria-pressed", String(button.dataset.view === view));
   }
   nodes.viewGaps.hidden = view !== "gaps";
   nodes.viewAll.hidden = view !== "all";
-  if (view === "all") renderGrid();
+  if (view === "all") {
+    gridLimit = FIRST_PAGE;
+    renderGrid();
+  }
+  if (push) location.hash = view === "all" ? gridHash() : "";
 }
 
 function route() {
-  const match = location.hash.match(/^#p(\d+)$/);
-  if (match) open(Number(match[1]));
-  else showBoard();
+  const hash = location.hash.slice(1);
+
+  const player = hash.match(/^p(\d+)$/);
+  if (player) return open(Number(player[1]));
+
+  const pair = hash.match(/^c(\d+),(\d+)$/);
+  if (pair) return compare(Number(pair[1]), Number(pair[2]));
+
+  showBoard();
+  const grid = hash.match(/^all(?:\?(.*))?$/);
+  if (grid) {
+    applyGridHash(grid[1] ?? "");
+    switchView("all", { push: false });
+  } else {
+    switchView("gaps", { push: false });
+  }
 }
 
 /* --- start ------------------------------------------------------------- */
@@ -454,9 +660,18 @@ function route() {
       button.addEventListener("click", () => switchView(button.dataset.view));
     }
     for (const control of [nodes.filterClub, nodes.filterPosition, nodes.sort]) {
-      control.addEventListener("change", renderGrid);
+      control.addEventListener("change", () => {
+        gridLimit = FIRST_PAGE;
+        location.hash = gridHash();
+        renderGrid();
+      });
     }
+    nodes.showAll.addEventListener("click", () => {
+      gridLimit = Infinity;
+      renderGrid();
+    });
 
+    nodes.loading.hidden = true;
     route();
     window.addEventListener("hashchange", route);
   } catch {

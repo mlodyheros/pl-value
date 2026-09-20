@@ -20,10 +20,18 @@ Most value sites print a single confident figure. This one draws the range the
 model actually earns, marks the market's figure on the same scale, and says
 plainly whether the market falls inside it.
 
-- **Board** — the players the model and the market disagree about most.
-- **Player** — the range, the verdict, and what evidence the model had. Players
-  with no recent playing record get a visibly wider band and a low-confidence
-  label rather than a falsely precise number.
+- **Where it disagrees** — the players the model and the market differ on most.
+- **All players** — every one of the 540, filtered by club and position and
+  sorted four ways. The filters live in the URL, so a view can be shared.
+- **Player** — the range, the verdict, minutes season by season, where the
+  player sits among others in the same position, and what evidence the model
+  had. Players with no recent playing record get a visibly wider band and a
+  low-confidence label rather than a falsely precise number.
+- **Compare** — two players' ranges drawn on one scale.
+
+The verdict leads with whether the market falls inside the range, not with the
+raw percentage. The model shrinks its estimates toward the middle, so a bare
+"18% below" would invite a reader to see a disagreement where there is none.
 
 ## Design notes
 
@@ -34,3 +42,6 @@ plainly whether the market falls inside it.
   Every money figure is IBM Plex Mono, so the numbers line up like a ledger.
 - Keyboard: `↑`/`↓` move through search results, `Enter` opens, `Esc` closes.
   Focus is always visible, and `prefers-reduced-motion` is respected.
+- Every colour used for text clears WCAG AA (4.5:1) on the paper background.
+  The band is drawn for the eye but carries a spoken sentence with the same
+  figures for anyone using a screen reader.

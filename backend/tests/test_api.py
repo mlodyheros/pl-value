@@ -75,7 +75,7 @@ def test_list_players_is_small_enough_to_send_once(client):
 
     assert len(players) == 120
     assert set(players[0]) == {
-        "id", "name", "club", "position", "age",
+        "id", "name", "club", "position", "age", "nationality",
         "marketValueEur", "predictedEur", "gapPct", "tier",
     }
 
@@ -145,4 +145,39 @@ def test_missing_calibration_still_serves_players(tmp_path, monkeypatch):
     assert player["range"] is None
     assert player["marketInRange"] is None
     assert player["confidence"]["summary"] is None
+    api.get_state.cache_clear()
+
+
+def test_missing_dataset_answers_with_the_fix_not_a_stack_trace(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "PROCESSED_DATASET_PATH", tmp_path / "absent.csv")
+    api.get_state.cache_clear()
+
+    response = TestClient(api.app, raise_server_exceptions=False).get("/api/meta")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert "build_dataset" in body["fix"]
+    assert "No dataset" in body["detail"]
+    api.get_state.cache_clear()
+
+
+def test_rebuilding_the_dataset_is_picked_up_without_a_restart(tmp_path, monkeypatch):
+    """The state used to be cached for the life of the process, so a rebuilt
+    dataset stayed invisible until someone restarted the server."""
+    import os
+
+    csv = tmp_path / "players.csv"
+    frame = _dataset()
+    frame.to_csv(csv, index=False)
+    monkeypatch.setattr(api, "PROCESSED_DATASET_PATH", csv)
+    monkeypatch.setattr(api, "CALIBRATION_PATH", tmp_path / "none.json")
+    api.get_state.cache_clear()
+
+    client = TestClient(api.app)
+    assert client.get("/api/meta").json()["players"] == 120
+
+    frame.head(40).to_csv(csv, index=False)
+    os.utime(csv, (0, 0))  # any change of mtime, not just a later one
+
+    assert client.get("/api/meta").json()["players"] == 40
     api.get_state.cache_clear()

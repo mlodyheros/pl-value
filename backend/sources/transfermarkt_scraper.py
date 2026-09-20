@@ -10,6 +10,7 @@ right match for "current market value" as the prediction target.
 
 from __future__ import annotations
 
+import datetime as dt
 import difflib
 import json
 import logging
@@ -185,6 +186,19 @@ def resolve_club_id(club_name: str) -> dict | None:
     return entry
 
 
+def parse_contract_expiry(text: str) -> dt.date | None:
+    """'30/06/2028' -> a date. '-' and loan notes give None."""
+    text = text.strip()
+    match = re.search(r"(\d{2})/(\d{2})/(\d{4})", text)
+    if not match:
+        return None
+    day, month, year = (int(part) for part in match.groups())
+    try:
+        return dt.date(year, month, day)
+    except ValueError:
+        return None
+
+
 def parse_market_value(text: str) -> float | None:
     """'€45.00m' -> 45_000_000.0, '€850k' -> 850_000.0, '-' -> None."""
     text = text.strip().replace("€", "").replace(",", ".")
@@ -244,6 +258,9 @@ def fetch_squad(club_name: str) -> list[dict]:
         nationality = flags[0].get("title") if flags else None
 
         market_value = parse_market_value(cells[5].get_text(strip=True))
+        # Contract expiry is already on this page; a short deal cuts a player's
+        # value sharply, so it is worth carrying through.
+        expiry = parse_contract_expiry(cells[4].get_text(strip=True))
 
         players.append(
             {
@@ -253,6 +270,7 @@ def fetch_squad(club_name: str) -> list[dict]:
                 "nationality": nationality,
                 "club": label,
                 "market_value_eur": market_value,
+                "contract_expiry": expiry.isoformat() if expiry else None,
             }
         )
 

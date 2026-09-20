@@ -4,7 +4,12 @@
     {
       "name": "pl-value",
       "runtimeExecutable": ".venv/bin/uvicorn",
-      "runtimeArgs": ["backend.api:app", "--port", "8000", "--reload"],
+      "runtimeArgs": [
+        "backend.api:app",
+        "--port",
+        "8000",
+        "--reload"
+      ],
       "port": 8000
     }
   ]

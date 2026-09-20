@@ -73,7 +73,7 @@ def test_find_club_candidates_without_clubs_box_is_empty():
     assert tm._find_club_candidates("<div class='box'><h2>Players</h2></div>") == []
 
 
-def _squad_row(name, position, age, country, value):
+def _squad_row(name, position, age, country, value, contract="30/06/2028"):
     return f"""
     <tr>
       <td>1</td>
@@ -83,7 +83,7 @@ def _squad_row(name, position, age, country, value):
           </table></td>
       <td>{age}</td>
       <td><img title="{country}"/></td>
-      <td>x</td>
+      <td>{contract}</td>
       <td>{value}</td>
     </tr>"""
 
@@ -114,6 +114,7 @@ def test_fetch_squad_parses_rows(monkeypatch):
             "nationality": "Norway",
             "club": "Manchester City FC",
             "market_value_eur": 220_000_000.0,
+            "contract_expiry": "2028-06-30",
         },
         {
             "name": "Young Keeper",
@@ -122,6 +123,7 @@ def test_fetch_squad_parses_rows(monkeypatch):
             "nationality": "England",
             "club": "Manchester City FC",
             "market_value_eur": None,
+            "contract_expiry": "2028-06-30",
         },
     ]
 
@@ -154,3 +156,23 @@ def test_fetch_squad_rejects_implausibly_cheap_squad(monkeypatch):
 def test_fetch_squad_unresolved_club_returns_empty(monkeypatch):
     monkeypatch.setattr(tm, "resolve_club_id", lambda name: None)
     assert tm.fetch_squad("Nowhere FC") == []
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("30/06/2028", (2028, 6, 30)),
+        (" 31/12/2026 ", (2026, 12, 31)),
+        ("-", None),
+        ("", None),
+        ("on loan", None),
+        ("31/02/2027", None),   # not a real date
+    ],
+)
+def test_parse_contract_expiry(text, expected):
+    result = tm.parse_contract_expiry(text)
+
+    if expected is None:
+        assert result is None
+    else:
+        assert (result.year, result.month, result.day) == expected
