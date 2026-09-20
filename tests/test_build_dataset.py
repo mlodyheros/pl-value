@@ -51,6 +51,51 @@ def test_match_stats_miss_returns_a_fresh_dict():
     assert bd._match_stats("Nobody", {})[0]["goals"] == 0
 
 
+def _fpl(first, second, web, minutes=0):
+    return {"first_name": first, "second_name": second, "web_name": web, "fpl_minutes": minutes,
+            "fpl_starts": 0, "fpl_xg": 0.0, "fpl_xa": 0.0, "fpl_defensive_contribution": 0,
+            "fpl_price": 5.0}
+
+
+def test_match_fpl_full_web_subset_and_fuzzy():
+    players = [
+        _fpl("Gabriel", "Magalhães", "Gabriel"),
+        _fpl("Gabriel", "Jesus", "Jesus"),
+        _fpl("David", "Raya Martín", "Raya"),
+        _fpl("Bruno", "Fernandes", "B.Fernandes"),
+        _fpl("Yeremi", "Pino", "Pino"),
+        _fpl("Bruno", "Borges Fernandes", "Bruno"),
+    ]
+    by_full, by_web = bd._index_fpl_players(players)
+
+    assert bd._match_fpl("Jérémy Nobody", by_full, by_web) is None
+    assert bd._match_fpl("Gabriel", by_full, by_web)["second_name"] == "Magalhães"  # short name
+    assert bd._match_fpl("David Raya", by_full, by_web)["second_name"] == "Raya Martín"  # subset
+    assert bd._match_fpl("Bruno Fernandes", by_full, by_web)["second_name"] == "Fernandes"  # exact
+    assert bd._match_fpl("Yéremy Pino", by_full, by_web)["second_name"] == "Pino"  # fuzzy
+
+
+def test_match_fpl_refuses_ambiguous_subset():
+    players = [_fpl("Ben", "Davies Jr", "B.Davies"), _fpl("Ben", "Davies Sr", "Bd")]
+    by_full, by_web = bd._index_fpl_players(players)
+
+    assert bd._match_fpl("Ben Davies", by_full, by_web) is None
+
+
+def test_index_fpl_players_keeps_player_with_minutes_on_duplicate_name():
+    players = [_fpl("Same", "Name", "A", minutes=0), _fpl("Same", "Name", "B", minutes=90)]
+    by_full, _ = bd._index_fpl_players(players)
+
+    assert by_full["same name"]["fpl_minutes"] == 90
+
+
+def test_index_fpl_players_skips_ambiguous_web_names():
+    players = [_fpl("A", "One", "Silva"), _fpl("B", "Two", "Silva"), _fpl("C", "Three", "Unique")]
+    _, by_web = bd._index_fpl_players(players)
+
+    assert set(by_web) == {"unique"}
+
+
 def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
     monkeypatch.setattr(bd.fd, "get_teams", lambda season: [{"name": "Manchester City FC"}])
     monkeypatch.setattr(
@@ -70,6 +115,12 @@ def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
         "get_scorers",
         lambda season: [{"player": {"name": "Erling Haaland"}, "goals": 10, "assists": 2, "penalties": 1, "playedMatches": 12}],
     )
+    monkeypatch.setattr(bd.fpl_client, "get_bootstrap_static", lambda refresh=False: {"events": [{"finished": True}] * 4})
+    monkeypatch.setattr(
+        bd.fpl_client,
+        "parse_players",
+        lambda data: [{**_fpl("Erling", "Haaland", "Haaland", minutes=360), "fpl_starts": 4, "fpl_xg": 3.3}],
+    )
     monkeypatch.setattr(bd, "SEASONS", [2025])
     monkeypatch.setattr(bd, "PROCESSED_DATASET_PATH", tmp_path / "out" / "players.csv")
 
@@ -79,4 +130,7 @@ def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
     assert list(df["name"]) == ["Erling Haaland", "Ederson"]
     assert list(df["goals"]) == [10, 0]
     assert list(df["has_scorer_record"]) == [1, 0]
+    assert list(df["has_fpl_record"]) == [1, 0]
+    assert list(df["fpl_minutes"]) == [360, 0]
+    assert list(df["fpl_gameweeks"]) == [4, 4]
     assert pd.read_csv(tmp_path / "out" / "players.csv").shape[0] == 2

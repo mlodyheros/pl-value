@@ -14,6 +14,9 @@ NUMERIC_FEATURES = [
     "penalties",
     "appearances",
     "has_scorer_record",
+    "has_fpl_record",
+    "minutes_share",
+    "starts_share",
 ]
 CATEGORICAL_FEATURES = ["position", "club"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -36,6 +39,15 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         out["has_scorer_record"] = (
             (out["goals"] > 0) | (out["assists"] > 0) | (out["appearances"] > 0)
         ).astype(int)
+
+    has_fpl_columns = {"fpl_minutes", "fpl_starts", "fpl_gameweeks"} <= set(out.columns)
+    gameweeks = out["fpl_gameweeks"].clip(lower=1) if has_fpl_columns else None
+    if "minutes_share" not in out:
+        out["minutes_share"] = out["fpl_minutes"] / (gameweeks * 90) if has_fpl_columns else 0.0
+    if "starts_share" not in out:
+        out["starts_share"] = out["fpl_starts"] / gameweeks if has_fpl_columns else 0.0
+    if "has_fpl_record" not in out:
+        out["has_fpl_record"] = 0
     return out
 
 

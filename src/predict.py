@@ -42,11 +42,25 @@ def predict_player(name: str) -> None:
             f"  Stats: {row['goals']}G {row['assists']}A, "
             f"{row['appearances']} appearances (recent seasons)"
         )
+        if row.get("has_fpl_record") == 1:
+            print(f"  This season (FPL): {row['fpl_minutes']:.0f} minutes, {row['fpl_starts']:.0f} starts")
         print(f"  Actual value:    €{actual:,.0f}")
         print(f"  Predicted value: €{predicted:,.0f}  ({diff_pct:+.1f}% vs actual)")
 
 
-def predict_manual(age, position, club, goals, assists, penalties, appearances) -> None:
+def predict_manual(
+    age,
+    position,
+    club,
+    goals,
+    assists,
+    penalties,
+    appearances,
+    minutes_share=None,
+    starts_share=None,
+) -> None:
+    """``minutes_share``/``starts_share`` (0-1) are this season's FPL playing time;
+    omit both if unknown."""
     pipeline = load_pipeline()
     row = prepare_features(
         pd.DataFrame(
@@ -59,6 +73,9 @@ def predict_manual(age, position, club, goals, assists, penalties, appearances) 
                     "appearances": appearances,
                     "position": position,
                     "club": club,
+                    "has_fpl_record": int(minutes_share is not None or starts_share is not None),
+                    "minutes_share": minutes_share or 0.0,
+                    "starts_share": starts_share or 0.0,
                 }
             ]
         )
@@ -77,6 +94,12 @@ def main() -> None:
     parser.add_argument("--assists", type=int, default=0)
     parser.add_argument("--penalties", type=int, default=0)
     parser.add_argument("--appearances", type=int, default=0)
+    parser.add_argument(
+        "--minutes-share", type=float, help="share of this season's minutes played (0-1)"
+    )
+    parser.add_argument(
+        "--starts-share", type=float, help="starts per gameweek this season (0-1)"
+    )
     args = parser.parse_args()
 
     if args.player:
@@ -90,6 +113,8 @@ def main() -> None:
             args.assists,
             args.penalties,
             args.appearances,
+            args.minutes_share,
+            args.starts_share,
         )
     else:
         parser.error("Provide --player NAME, or --age/--position/--club for a manual prediction")

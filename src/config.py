@@ -10,6 +10,10 @@ load_dotenv()
 FOOTBALL_DATA_API_KEY = os.getenv("FOOTBALL_DATA_API_KEY", "")
 FOOTBALL_DATA_BASE_URL = "https://api.football-data.org/v4"
 
+FPL_BASE_URL = "https://fantasy.premierleague.com/api"
+# FPL numbers are season-to-date, so a cached copy goes stale after a gameweek
+FPL_CACHE_MAX_AGE_HOURS = 24
+
 TRANSFERMARKT_BASE_URL = "https://www.transfermarkt.com"
 TRANSFERMARKT_HEADERS = {
     "User-Agent": (
@@ -42,6 +46,7 @@ FIGURES_DIR = PROJECT_ROOT / "reports" / "figures"
 
 FOOTBALL_DATA_RAW_DIR = RAW_DIR / "football_data"
 TRANSFERMARKT_RAW_DIR = RAW_DIR / "transfermarkt"
+FPL_RAW_DIR = RAW_DIR / "fpl"
 TRANSFERMARKT_CLUB_ID_CACHE = TRANSFERMARKT_RAW_DIR / "club_ids.json"
 
 PROCESSED_DATASET_PATH = PROCESSED_DIR / "pl_players.csv"

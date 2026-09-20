@@ -4,25 +4,31 @@
 
 from __future__ import annotations
 
+import argparse
 import difflib
 import logging
-import unicodedata
+from collections import Counter
 
 import pandas as pd
 
 from src.config import CURRENT_SEASON, PROCESSED_DATASET_PATH, SEASONS
 from src.data import football_data_client as fd
+from src.data import fpl_client
 from src.data import transfermarkt_scraper as tm
+from src.data.names import normalize_name
 
 logger = logging.getLogger(__name__)
 
 _EMPTY_STATS = {"goals": 0, "assists": 0, "penalties": 0, "appearances": 0}
-
-
-def normalize_name(name: str) -> str:
-    """Accent-/case-insensitive key so 'Jérémy Doku' joins 'Jeremy Doku'."""
-    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
-    return " ".join(ascii_name.lower().split())
+_EMPTY_FPL = {
+    "fpl_minutes": 0,
+    "fpl_starts": 0,
+    "fpl_xg": 0.0,
+    "fpl_xa": 0.0,
+    "fpl_defensive_contribution": 0,
+    "fpl_price": 0.0,
+}
+_FPL_FUZZY_CUTOFF = 0.88
 
 
 def _aggregate_performance_stats(seasons: list[int]) -> dict[str, dict]:
@@ -52,7 +58,50 @@ def _match_stats(name: str, stats: dict[str, dict]) -> tuple[dict, bool]:
     return dict(_EMPTY_STATS), False
 
 
-def build_dataset() -> pd.DataFrame:
+def _index_fpl_players(players: list[dict]) -> tuple[dict, dict]:
+    """Lookups by normalized full name and by (unique-only) short web name."""
+    by_full: dict[str, dict] = {}
+    for player in players:
+        key = normalize_name(f"{player['first_name']} {player['second_name']}")
+        # Same name twice (rare): keep whoever has actually played.
+        if key not in by_full or player["fpl_minutes"] > by_full[key]["fpl_minutes"]:
+            by_full[key] = player
+
+    web_counts = Counter(normalize_name(p["web_name"]) for p in players)
+    by_web = {
+        normalize_name(p["web_name"]): p
+        for p in players
+        if web_counts[normalize_name(p["web_name"])] == 1
+    }
+    return by_full, by_web
+
+
+def _match_fpl(name: str, by_full: dict, by_web: dict) -> dict | None:
+    """Full name, short name (Transfermarkt's 'Gabriel'), unique name-token
+    subset (Transfermarkt's 'David Raya' vs FPL's 'David Raya Martin'), then fuzzy."""
+    key = normalize_name(name)
+    if key in by_full:
+        return by_full[key]
+    if key in by_web:
+        return by_web[key]
+
+    tokens = set(key.split())
+    if len(tokens) >= 2:
+        supersets = [p for full, p in by_full.items() if tokens <= set(full.split())]
+        if len(supersets) == 1:
+            return supersets[0]
+    close = difflib.get_close_matches(key, by_full.keys(), n=1, cutoff=_FPL_FUZZY_CUTOFF)
+    return by_full[close[0]] if close else None
+
+
+def _fpl_columns(player: dict | None, gameweeks: int) -> dict:
+    if player is None:
+        return {**_EMPTY_FPL, "fpl_gameweeks": gameweeks, "has_fpl_record": 0}
+    values = {key: player[key] for key in _EMPTY_FPL}
+    return {**values, "fpl_gameweeks": gameweeks, "has_fpl_record": 1}
+
+
+def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
     teams = fd.get_teams(CURRENT_SEASON)
     club_names = [team["name"] for team in teams]
     if not club_names:
@@ -66,13 +115,36 @@ def build_dataset() -> pd.DataFrame:
 
     stats = _aggregate_performance_stats(SEASONS)
 
+    fpl_data = fpl_client.get_bootstrap_static(refresh=refresh_fpl)
+    gameweeks = fpl_client.finished_gameweeks(fpl_data)
+    fpl_by_full, fpl_by_web = _index_fpl_players(fpl_client.parse_players(fpl_data))
+    logger.info("FPL: %d finished gameweeks", gameweeks)
+
     rows = []
     unmatched = []
+    fpl_unmatched = []
     for player in squads:
         player_stats, matched = _match_stats(player["name"], stats)
         if not matched:
             unmatched.append(player["name"])
-        rows.append({**player, **player_stats, "has_scorer_record": int(matched)})
+        fpl_player = _match_fpl(player["name"], fpl_by_full, fpl_by_web)
+        if fpl_player is None:
+            fpl_unmatched.append(player["name"])
+        rows.append(
+            {
+                **player,
+                **player_stats,
+                "has_scorer_record": int(matched),
+                **_fpl_columns(fpl_player, gameweeks),
+            }
+        )
+
+    if fpl_unmatched:
+        logger.info(
+            "%d players had no FPL record (FPL stats default to 0), e.g. %s",
+            len(fpl_unmatched),
+            fpl_unmatched[:10],
+        )
 
     if unmatched:
         logger.info(
@@ -91,4 +163,10 @@ def build_dataset() -> pd.DataFrame:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    build_dataset()
+    parser = argparse.ArgumentParser(description="Build the processed PL player dataset")
+    parser.add_argument(
+        "--refresh-fpl",
+        action="store_true",
+        help="ignore the cached FPL response and refetch it",
+    )
+    build_dataset(refresh_fpl=parser.parse_args().refresh_fpl)

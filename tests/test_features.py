@@ -62,3 +62,32 @@ def test_add_derived_features_keeps_existing_scorer_flag():
 
 def test_prepare_features_returns_training_columns_in_order():
     assert list(prepare_features(_sample_df()).columns) == FEATURE_COLUMNS
+
+
+def test_add_derived_features_fpl_shares():
+    df = _sample_df().assign(
+        fpl_minutes=[360, 0, 180, 90],
+        fpl_starts=[4, 0, 2, 1],
+        fpl_gameweeks=[4, 4, 4, 0],  # 0 finished gameweeks must not divide by zero
+        has_fpl_record=[1, 1, 1, 0],
+    )
+    out = add_derived_features(df)
+
+    assert list(out["minutes_share"]) == [1.0, 0.0, 0.5, 1.0]
+    assert list(out["starts_share"]) == [1.0, 0.0, 0.5, 1.0]
+    assert list(out["has_fpl_record"]) == [1, 1, 1, 0]
+
+
+def test_add_derived_features_defaults_without_fpl_data():
+    out = add_derived_features(_sample_df())
+
+    assert (out["minutes_share"] == 0).all()
+    assert (out["starts_share"] == 0).all()
+    assert (out["has_fpl_record"] == 0).all()
+
+
+def test_add_derived_features_keeps_supplied_shares():
+    out = add_derived_features(_sample_df().assign(minutes_share=0.8, starts_share=0.5))
+
+    assert (out["minutes_share"] == 0.8).all()
+    assert (out["starts_share"] == 0.5).all()

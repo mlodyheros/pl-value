@@ -50,3 +50,21 @@ def test_predict_player_reports_no_match(monkeypatch, tmp_path, capsys):
     predict.predict_player("Nobody Real")
 
     assert "No player found" in capsys.readouterr().out
+
+
+def test_predict_manual_playing_time_changes_prediction(monkeypatch, capsys):
+    df = _df().assign(has_fpl_record=1, minutes_share=lambda d: d.goals / 20, starts_share=lambda d: d.goals / 20)
+    pipeline, _ = train(df)
+    monkeypatch.setattr(predict, "load_pipeline", lambda: pipeline)
+
+    def run(**kwargs):
+        predict.predict_manual(24, "Centre-Forward", "A FC", 5, 2, 0, 20, **kwargs)
+        return capsys.readouterr().out
+
+    starter = run(minutes_share=1.0, starts_share=1.0)
+    benched = run(minutes_share=0.05, starts_share=0.0)
+
+    def euros(out):
+        return float(out.split("€")[1].replace(",", ""))
+
+    assert euros(starter) > euros(benched)
