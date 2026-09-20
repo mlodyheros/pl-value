@@ -18,7 +18,7 @@
 
   <search class="finder">
     <label class="visually-hidden" for="q">Search a player</label>
-    <input id="q" type="search" placeholder="Search any of 540 players" autocomplete="off"
+    <input id="q" type="search" placeholder="Search a player, club, position or country" autocomplete="off"
            role="combobox" aria-expanded="false" aria-controls="suggestions" aria-autocomplete="list">
     <ul id="suggestions" class="suggestions" role="listbox" aria-label="Matching players" hidden></ul>
   </search>
@@ -82,7 +82,7 @@
             <option value="name">Name</option>
           </select>
         </label>
-        <p class="filters__count" id="filter-count"></p>
+        <p class="filters__count" id="filter-count" role="status" aria-live="polite"></p>
       </div>
 
       <div class="grid" role="table" aria-label="All players">
@@ -94,11 +94,14 @@
         </div>
         <div id="grid-rows"></div>
       </div>
+      <button class="more" type="button" id="show-all" hidden></button>
       <p class="note" id="grid-note"></p>
     </div>
   </section>
 
   <article class="player" id="player" hidden aria-live="polite"></article>
+  <section class="compare" id="compare" hidden aria-live="polite"></section>
+  <p class="notice" id="loading">Loading the model’s estimates…</p>
 
 </main>
 

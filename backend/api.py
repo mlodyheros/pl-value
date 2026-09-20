@@ -18,7 +18,7 @@ from functools import lru_cache
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sklearn.model_selection import KFold
 
@@ -50,14 +50,13 @@ def _out_of_fold_predictions(df: pd.DataFrame, n_splits: int = 5) -> np.ndarray:
     return np.expm1(predicted.to_numpy())
 
 
-@lru_cache(maxsize=1)
-def get_state() -> dict:
-    """Dataset, predictions and calibration, prepared once per process."""
-    if not PROCESSED_DATASET_PATH.exists():
-        raise RuntimeError(
-            f"No dataset at {PROCESSED_DATASET_PATH}. "
-            "Run `python -m backend.sources.build_dataset` first."
-        )
+class DatasetMissing(RuntimeError):
+    """Raised when the pipeline has not been run yet."""
+
+
+@lru_cache(maxsize=8)
+def _build_state(dataset_stamp: float) -> dict:
+    """Keyed on the dataset's mtime, so rebuilding it invalidates this."""
     df = add_derived_features(pd.read_csv(PROCESSED_DATASET_PATH))
     df["predicted_eur"] = _out_of_fold_predictions(df)
     df["tier"] = confidence.coverage_tiers(df)
@@ -86,6 +85,25 @@ def get_state() -> dict:
         "metrics": cross_validate_model(df),
         "timelines": timelines,
     }
+
+
+def get_state() -> dict:
+    """Dataset, predictions and calibration.
+
+    Prepared once and then reused, but keyed on the dataset file's timestamp:
+    rebuilding the dataset is picked up on the next request instead of needing
+    the server restarted.
+    """
+    if not PROCESSED_DATASET_PATH.exists():
+        raise DatasetMissing(
+            f"No dataset at {PROCESSED_DATASET_PATH}. "
+            "Run `python -m backend.sources.build_dataset` first."
+        )
+    return _build_state(PROCESSED_DATASET_PATH.stat().st_mtime)
+
+
+# Tests and callers reach for this the way they would on an lru_cache.
+get_state.cache_clear = _build_state.cache_clear
 
 
 def _timeline(row: pd.Series, timelines: dict) -> list[dict]:
@@ -147,7 +165,11 @@ def _player_payload(
         "position": row.position,
         "age": int(row.age),
         "nationality": row.nationality,
+        # Carried for the reader, not the model: contract length correlates with
+        # value but adds nothing once age is known (tested, within noise).
+        "contractExpiry": None if pd.isna(row.get("contract_expiry")) else row.contract_expiry,
         "marketValueEur": float(row.market_value_eur),
+        "marketValueSource": "Transfermarkt",
         "predictedEur": predicted,
         "gapPct": float(row.gap_pct),
         "range": None if low is None else {"lowEur": float(low), "highEur": float(high)},
@@ -193,6 +215,18 @@ def _player_payload(
 app = FastAPI(title="PL Value Predictor", docs_url="/api/docs")
 
 
+@app.exception_handler(DatasetMissing)
+def dataset_missing(request, exc: DatasetMissing) -> JSONResponse:
+    """Answer the one setup mistake anyone will make with instructions."""
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": str(exc),
+            "fix": "python -m backend.sources.build_dataset && python -m backend.model",
+        },
+    )
+
+
 @app.get("/api/players")
 def list_players() -> list[dict]:
     """Everyone, trimmed to what the search box needs. Small enough to send once."""
@@ -204,6 +238,7 @@ def list_players() -> list[dict]:
             "club": r.club,
             "position": r.position,
             "age": int(r.age),
+            "nationality": r.nationality,
             "marketValueEur": float(r.market_value_eur),
             "predictedEur": float(r.predicted_eur),
             "gapPct": float(r.gap_pct),

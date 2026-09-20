@@ -34,7 +34,8 @@ frontend/    single-page interface, no build step
 ## Setup
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt        # to run the pipeline and the app
+pip install -r requirements-dev.txt    # to run the tests and the notebook
 ```
 
 No API keys and no accounts: both sources are public.
