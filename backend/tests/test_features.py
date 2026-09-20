@@ -162,3 +162,32 @@ def test_career_features_zero_for_players_with_no_history_anywhere():
     assert (out["career_minutes_share"] == 0).all()
     assert (out["career_gi_per90"] == 0).all()
     assert (out["has_any_history"] == 0).all()
+
+
+def test_recent_minutes_share_uses_the_newest_pl_season():
+    df = _sample_df().assign(
+        has_hist_record=1, has_nonpl_record=0,
+        hist_minutes=0, hist_seasons=1, hist_goals=0, hist_assists=0,
+        recent_minutes=[3420, 1710, 0, 342],
+        recent_available_minutes=3420,
+    )
+    out = add_derived_features(df)
+
+    assert list(out["recent_minutes_share"]) == [1.0, 0.5, 0.0, 0.1]
+
+
+def test_recent_minutes_share_falls_back_to_the_non_pl_season():
+    df = _sample_df().assign(
+        has_hist_record=0, has_nonpl_record=1,
+        hist_minutes=0, hist_seasons=0, hist_goals=0, hist_assists=0,
+        recent_minutes=0, recent_available_minutes=3420,
+        nonpl_recent_minutes=1530, nonpl_recent_available_minutes=3060,
+        nonpl_minutes=1530, nonpl_available_minutes=3060, nonpl_goals=0, nonpl_assists=0,
+    )
+    out = add_derived_features(df)
+
+    assert (out["recent_minutes_share"] == 0.5).all()
+
+
+def test_recent_minutes_share_defaults_without_season_columns():
+    assert (add_derived_features(_sample_df())["recent_minutes_share"] == 0).all()

@@ -16,6 +16,7 @@ NUMERIC_FEATURES = [
     "has_any_history",
     "career_minutes_share",
     "career_gi_per90",
+    "recent_minutes_share",
 ]
 CATEGORICAL_FEATURES = ["position", "club"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -45,6 +46,14 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
       minutes played, but scoring *rate* is independent of it and is what
       separates an expensive forward from a regular one (MAE EUR8.48m ->
       EUR8.16m). xG/xA per 90 adds nothing on top of actual output.
+    - ``recent_minutes_share``: the same share, for the newest completed season
+      alone. Career totals average several seasons together, so a player who
+      has just become a regular - or just lost their place - is described badly
+      by them. The latest season on its own cut error sharply (MAE EUR7.90m ->
+      EUR7.37m, and EUR18.6m -> EUR16.3m among the dearest tenth), and it is
+      the strongest answer found so far to the model under-asking for expensive
+      players. Career and recent both earn their place: one says who a player
+      has been, the other where they stand now.
     """
     out = df.copy()
     out["age_squared"] = out["age"] ** 2
@@ -103,6 +112,18 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         out["career_gi_per90"] = np.where(has_pl, out["hist_gi_per90"], out["nonpl_gi_per90"])
     if "has_any_history" not in out:
         out["has_any_history"] = (has_pl | (out["has_nonpl_record"] == 1)).astype(int)
+
+    if "recent_minutes_share" not in out:
+        if "recent_minutes" in out:
+            pl_recent = out["recent_minutes"] / out["recent_available_minutes"].clip(lower=1)
+            non_pl_recent = (
+                out["nonpl_recent_minutes"] / out["nonpl_recent_available_minutes"].clip(lower=1)
+                if "nonpl_recent_minutes" in out
+                else 0.0
+            )
+            out["recent_minutes_share"] = np.where(has_pl, pl_recent, non_pl_recent)
+        else:
+            out["recent_minutes_share"] = 0.0
     return out
 
 
