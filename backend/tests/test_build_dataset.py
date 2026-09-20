@@ -191,3 +191,28 @@ def test_history_columns_empty_when_player_is_genuinely_new():
 
     assert cols["has_hist_record"] == 0
     assert cols["hist_minutes"] == 0
+
+
+def test_recent_columns_take_the_newest_season():
+    records = [
+        {"season": 2023, "minutes": 3000},
+        {"season": 2025, "minutes": 900, "season_minutes": 3060},
+        {"season": 2024, "minutes": 2000},
+    ]
+
+    assert bd._recent_columns(records, 3420) == {
+        "recent_minutes": 900,
+        "recent_available_minutes": 3060,
+    }
+
+
+def test_recent_columns_are_zero_when_the_newest_season_was_missed():
+    """Not playing the latest season is information, not missing data."""
+    assert bd._recent_columns([{"season": 2023, "minutes": 3000}], 3420) == {
+        "recent_minutes": 0,
+        "recent_available_minutes": 3420,
+    }
+
+
+def test_recent_columns_handle_no_record_at_all():
+    assert bd._recent_columns(None, 3420)["recent_minutes"] == 0

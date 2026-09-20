@@ -46,6 +46,8 @@ _EMPTY_NONPL = {
     "nonpl_seasons": 0,
     "nonpl_available_minutes": 0,
 }
+# A full Premier League season on the pitch.
+_PL_SEASON_MINUTES = 3420
 _FPL_FUZZY_CUTOFF = 0.88
 _UNDERSTAT_FUZZY_CUTOFF = 0.88
 
@@ -121,8 +123,15 @@ def _nonpl_columns(player: dict, index: dict) -> dict:
     """Non-PL playing record, only for players with no PL history to speak of."""
     records = _match_understat(player["name"], player.get("position", ""), index)
     if not records:
-        return {**_EMPTY_NONPL, "has_nonpl_record": 0}
-    return {**us.aggregate(records), "has_nonpl_record": 1}
+        return {**_EMPTY_NONPL, "has_nonpl_record": 0, "nonpl_recent_minutes": 0,
+                "nonpl_recent_available_minutes": _PL_SEASON_MINUTES}
+    recent = _recent_columns(records, _PL_SEASON_MINUTES)
+    return {
+        **us.aggregate(records),
+        "has_nonpl_record": 1,
+        "nonpl_recent_minutes": recent["recent_minutes"],
+        "nonpl_recent_available_minutes": recent["recent_available_minutes"],
+    }
 
 
 def _fpl_columns(player: dict | None, gameweeks: int) -> dict:
@@ -145,6 +154,23 @@ def _fpl_columns(player: dict | None, gameweeks: int) -> dict:
     }
 
 
+def _recent_columns(records: list[dict] | None, season_minutes: int) -> dict:
+    """Minutes in the newest season we cover, and how many were available.
+
+    Career totals average several seasons together, which describes a player
+    who has just become a regular - or just stopped being one - badly. The most
+    recent completed season is the sharper statement of where they stand now.
+    """
+    newest = max(SEASONS)
+    for record in records or []:
+        if record.get("season") == newest:
+            return {
+                "recent_minutes": record["minutes"],
+                "recent_available_minutes": record.get("season_minutes", season_minutes),
+            }
+    return {"recent_minutes": 0, "recent_available_minutes": season_minutes}
+
+
 def _history_columns(name: str, position: str, player: dict | None, index: dict) -> dict:
     """Past PL seasons over ``SEASONS``.
 
@@ -160,7 +186,11 @@ def _history_columns(name: str, position: str, player: dict | None, index: dict)
         us.transfermarkt_position_group(position),
     )
     history = archive.aggregate(records) if records else _EMPTY_HIST
-    return {**history, "has_hist_record": int(history["hist_seasons"] > 0)}
+    return {
+        **history,
+        "has_hist_record": int(history["hist_seasons"] > 0),
+        **_recent_columns(records, _PL_SEASON_MINUTES),
+    }
 
 
 def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:

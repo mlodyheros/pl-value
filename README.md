@@ -80,7 +80,8 @@ seeds at this dataset size.
 | + past seasons' minutes | 0.64 | €8.5m | €19.8m |
 | + past-season goals+assists **per 90** | 0.65 | €8.2m | €19.3m |
 | + non-PL record as a **fallback** | 0.67 | €8.0m | €19.2m |
-| + PL history from the season archive | **0.69** | **€7.9m** | **€19.1m** |
+| + PL history from the season archive | 0.69 | €7.9m | €19.1m |
+| + **the newest season on its own** | **0.70** | **€7.5m** | **€17.1m** |
 
 Three findings worth keeping in mind:
 
@@ -89,6 +90,12 @@ Three findings worth keeping in mind:
 - **Rates matter, totals don't.** Raw goal totals add nothing - they're largely a
   restatement of minutes played. Goals+assists *per 90* is independent of playing
   time and does help, especially for expensive forwards.
+- **Recency beats the average.** Career totals average several seasons together,
+  which describes a player who has just become a regular — or just lost their
+  place — badly. Adding the newest completed season *on its own*, alongside the
+  career figure, was the single largest gain since the FPL history went in, and
+  it is the best answer found so far to the model under-asking for expensive
+  players (top-decile predicted/actual 0.86 → 0.91).
 - **Recent history only.** Extending the archive back to 2018 made things *worse*
   (R² 0.673 -> 0.655, MAE €8.25m -> €8.51m). Form from six years ago says little
   about today's value, and it doesn't reach the players who are missing history
@@ -103,7 +110,23 @@ Training weights players by √value. Plain log-value regression optimises *rela
 error, so cheap players outvote the stars; weighting lowers euro MAE overall and for
 the top 10%, at some cost in log-R².
 
-The model still under-predicts the very top (top-10% predicted/actual ≈ 0.89) and
+### The model shrinks toward the middle
+
+It is not that the model is priced for an older market. Its estimates sum to
+€13.4bn against the market's €13.2bn — it is 2% *above* the market in aggregate,
+and its median player is 7% above. What it does is shrink: below €5m it asks
+about 2.9× the market, above €20m about 0.89×.
+
+That is regression to the mean, and it is the price of lower error when features
+are noisy. Three corrections were tested — linear recalibration, isotonic
+recalibration and Duan smearing — and every one improved calibration while making
+euro error worse. So the model keeps the shrinkage and the interface explains it.
+
+Note this is a snapshot: the target is Transfermarkt's valuation *today*, and the
+dataset has no time dimension at all, so transfer-market inflation is already
+inside the numbers the model learns from rather than something it has to correct.
+
+The model still under-predicts the very top (top-10% predicted/actual ≈ 0.91) and
 players with no PL history - about a quarter of the squad, flagged by `has_hist_record`.
 
 Tried and rejected: random forest / gradient boosting (with matched weights the linear
