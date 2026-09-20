@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+import json
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -14,7 +16,7 @@ from sklearn.model_selection import KFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from backend.config import MODEL_PATH, PROCESSED_DATASET_PATH
+from backend.config import CALIBRATION_PATH, MODEL_PATH, PROCESSED_DATASET_PATH
 from backend.features import (
     CATEGORICAL_FEATURES,
     NUMERIC_FEATURES,
@@ -117,6 +119,20 @@ def main() -> None:
     logger.info("5-fold CV RMSE: €%.0f", cv_metrics["cv_rmse_eur"])
     logger.info("5-fold CV top-10%% MAE: €%.0f", cv_metrics["cv_top_decile_mae_eur"])
     logger.info("5-fold CV top-10%% predicted/actual: %.2f", cv_metrics["cv_top_decile_ratio"])
+
+    from backend import confidence
+
+    calibration = confidence.calibrate(df)
+    CALIBRATION_PATH.write_text(json.dumps(calibration, indent=2))
+    for tier in confidence.TIERS:
+        low, high = confidence.interval(1.0, tier, calibration)
+        logger.info(
+            "80%% range, %s: x%.2f to x%.2f (n=%s)",
+            tier,
+            low,
+            high,
+            calibration.get(tier, {}).get("n", "borrowed"),
+        )
 
     from backend.evaluate import plot_predictions
 

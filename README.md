@@ -52,7 +52,8 @@ python -m backend.data.build_dataset
 #    reports/figures/pred_vs_actual.png and models/linear_regression.joblib
 python -m backend.model
 
-# 3. Compare a player's predicted value against their actual value
+# 3. Compare a player's predicted value against their actual value.
+#    Every prediction comes with a measured range and a confidence tier.
 python -m backend.predict --player "Erling Haaland"
 
 # ...or predict for a hypothetical player by hand
@@ -110,6 +111,42 @@ actual output), this season's xG/xA and defensive stats (still noise after 4 gam
 position×stat interactions, power target transforms, boosting on residuals, Duan
 smearing, and FPL price (better log-R², much worse euro error).
 
+## How confident is a prediction?
+
+Every prediction carries a range, measured from the model's own out-of-fold
+errors rather than asserted. Errors are multiplicative (the model is fitted on
+log value), so the ranges are ratios:
+
+| What backs the prediction | Players | 80% range | Label |
+|---|---|---|---|
+| Premier League history | 421 | ×0.38 – ×1.67 | moderate confidence |
+| Other leagues only | 58 | ×0.48 – ×1.55 | moderate confidence |
+| No record anywhere | 61 | ×0.25 – ×1.82 | low confidence |
+
+```
+Geovany Quenda (Chelsea, Right Winger, age 19)
+  No recent history in any covered league (prediction is weak)
+  Predicted value: €27,574,511
+  Confidence:      low confidence - no recent playing record in any covered league
+  80% range:       €6,878,685 - €50,089,935
+```
+
+The ranges are checked, not just computed: calibrating on training folds and
+measuring on held-out ones, the stated 50% range contains the true value 48-52%
+of the time and the stated 80% range 75-84% of the time.
+
+Two deliberate choices:
+
+- **There is no "high confidence" band.** Even the best-evidenced group spans
+  more than a factor of four. Calling that high would misrepresent the model.
+- **The two history-backed tiers share a label** although their measured spreads
+  differ (×4.4 vs ×3.2). The smaller tier holds ~60 players, far too few for that
+  gap to be real - splitting them would advertise precision the sample can't
+  support, and would perversely rank players we know *less* about as safer.
+
+Calibration is written to `models/confidence_calibration.json` by
+`python -m backend.model`.
+
 ## Known limitations
 
 - **Market value is always "current"**: Transfermarkt doesn't expose reliable
@@ -122,7 +159,9 @@ smearing, and FPL price (better log-R², much worse euro error).
   anywhere (`has_any_history` flags them). Their median error is ~56% against ~31%
   for everyone else, in both directions. This is the largest remaining gap, though
   closing it entirely would only move overall MAE by ~2%: these are mostly cheap
-  players, so the cost shows up per-player rather than in the average.
+  players, so the cost shows up per-player rather than in the average. Until it
+  closes, those players are labelled low confidence rather than given a falsely
+  precise number.
 - **Name matching across sources is guarded, not perfect**: an exact name match is
   trusted; anything looser must also agree on position group, because fuzzy
   matching alone paired a centre-back with a goalkeeper. The guard costs some
@@ -150,6 +189,7 @@ backend/
   model.py                        builds/trains the sklearn pipeline
   evaluate.py                     predicted-vs-actual and residual plots
   predict.py                      CLI to compare prediction vs actual
+  confidence.py                   measured prediction ranges by data coverage
   sources/
     fpl_client.py                 FPL API: clubs and this season's stats
     fpl_archive_client.py         past PL seasons, one CSV per season (cached)
@@ -163,6 +203,6 @@ notebooks/                        exploration and experiment log (executed)
 data/
   raw/                            cached API/HTML responses (gitignored)
   processed/pl_players.csv        the merged dataset (gitignored)
-models/                           trained model artifacts (gitignored)
+models/                           trained model + calibration (gitignored)
 reports/figures/                  generated evaluation plots
 ```

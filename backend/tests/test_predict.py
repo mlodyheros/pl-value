@@ -5,6 +5,12 @@ from backend import predict
 from backend.model import train
 
 
+def _predicted_euros(out: str) -> float:
+    """The prediction itself, ignoring the confidence range printed under it."""
+    line = next(l for l in out.splitlines() if "Predicted value" in l)
+    return float(line.split("€")[1].replace(",", "").strip())
+
+
 def _df(n=60, seed=1):
     rng = np.random.default_rng(seed)
     goals = rng.integers(0, 20, n)
@@ -68,7 +74,7 @@ def test_predict_manual_history_changes_prediction(monkeypatch, capsys):
 
     def euros(**kwargs):
         predict.predict_manual(24, "Centre-Forward", "A FC", **kwargs)
-        return float(capsys.readouterr().out.split("€")[1].replace(",", ""))
+        return _predicted_euros(capsys.readouterr().out)
 
     assert euros(career_minutes_share=0.95) > euros(career_minutes_share=0.05)
 
@@ -80,15 +86,9 @@ def test_predict_manual_playing_time_changes_prediction(monkeypatch, capsys):
 
     def run(**kwargs):
         predict.predict_manual(24, "Centre-Forward", "A FC", **kwargs)
-        return capsys.readouterr().out
+        return _predicted_euros(capsys.readouterr().out)
 
-    starter = run(minutes_share=1.0, starts_share=1.0)
-    benched = run(minutes_share=0.05, starts_share=0.0)
-
-    def euros(out):
-        return float(out.split("€")[1].replace(",", ""))
-
-    assert euros(starter) > euros(benched)
+    assert run(minutes_share=1.0, starts_share=1.0) > run(minutes_share=0.05, starts_share=0.0)
 
 
 def test_validate_categories_rejects_unknown_club_and_lists_known():
@@ -113,3 +113,40 @@ def test_predict_manual_errors_on_unknown_club_instead_of_guessing(monkeypatch):
 
     with pytest.raises(SystemExit):
         predict.predict_manual(24, "Centre-Forward", "Nowhere FC")
+
+
+def test_format_confidence_without_calibration_says_so():
+    lines = predict.format_confidence(_df().iloc[0], 1e6, None)
+
+    assert len(lines) == 1 and "unknown" in lines[0]
+
+
+def test_format_confidence_reports_tier_and_range():
+    from backend import confidence
+
+    df = _df().assign(has_hist_record=1, has_nonpl_record=0)
+    cal = confidence.calibrate(df, n_splits=3)
+
+    lines = predict.format_confidence(df.iloc[0], 20_000_000, cal)
+
+    assert "Premier League history" in lines[0]
+    assert "80% range" in lines[1]
+
+
+def test_predict_player_prints_a_range(monkeypatch, tmp_path, capsys):
+    from backend import confidence
+
+    df = _df().assign(
+        name="Someone", has_hist_record=1, has_nonpl_record=0,
+        hist_seasons=2, hist_minutes=3000, hist_goals=5, hist_assists=2,
+    )
+    csv = tmp_path / "players.csv"
+    df.to_csv(csv, index=False)
+    monkeypatch.setattr(predict, "PROCESSED_DATASET_PATH", csv)
+    monkeypatch.setattr(predict, "load_pipeline", lambda: train(df)[0])
+    monkeypatch.setattr(predict, "load_calibration", lambda: confidence.calibrate(df, n_splits=3))
+
+    predict.predict_player("Someone")
+
+    out = capsys.readouterr().out
+    assert "Confidence:" in out and "80% range:" in out

@@ -51,3 +51,4 @@ TRANSFERMARKT_CLUB_ID_CACHE = TRANSFERMARKT_RAW_DIR / "club_ids.json"
 
 PROCESSED_DATASET_PATH = PROCESSED_DIR / "pl_players.csv"
 MODEL_PATH = MODELS_DIR / "linear_regression.joblib"
+CALIBRATION_PATH = MODELS_DIR / "confidence_calibration.json"

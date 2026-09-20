@@ -6,16 +6,38 @@ from __future__ import annotations
 
 import argparse
 
+import json
+
 import joblib
 import numpy as np
 import pandas as pd
 
-from backend.config import MODEL_PATH, PROCESSED_DATASET_PATH
+from backend import confidence
+from backend.config import CALIBRATION_PATH, MODEL_PATH, PROCESSED_DATASET_PATH
 from backend.features import CATEGORICAL_FEATURES, prepare_features
 
 
 def load_pipeline():
     return joblib.load(MODEL_PATH)
+
+
+def load_calibration() -> dict | None:
+    """Measured error spreads, written by `python -m backend.model`."""
+    if not CALIBRATION_PATH.exists():
+        return None
+    return json.loads(CALIBRATION_PATH.read_text())
+
+
+def format_confidence(row: pd.Series, predicted: float, calibration: dict | None) -> list[str]:
+    """Lines describing how much room to leave around a prediction."""
+    if calibration is None:
+        return ["  Confidence:      unknown (run `python -m backend.model` to calibrate)"]
+    tier = confidence.coverage_tiers(row.to_frame().T).iloc[0]
+    low, high = confidence.interval(predicted, tier, calibration)
+    return [
+        f"  Confidence:      {confidence.describe(tier, calibration)}",
+        f"  80% range:       EUR{low:,.0f} - EUR{high:,.0f}",
+    ]
 
 
 def known_categories(pipeline) -> dict[str, list[str]]:
@@ -53,6 +75,7 @@ def predict_player(name: str) -> None:
         return
 
     pipeline = load_pipeline()
+    calibration = load_calibration()
     for _, row in matches.iterrows():
         predicted = predict_for_row(pipeline, row)
         actual = row["market_value_eur"]
@@ -75,6 +98,8 @@ def predict_player(name: str) -> None:
             print("  No recent history in any covered league (prediction is weak)")
         print(f"  Actual value:    €{actual:,.0f}")
         print(f"  Predicted value: €{predicted:,.0f}  ({diff_pct:+.1f}% vs actual)")
+        for line in format_confidence(row, predicted, calibration):
+            print(line.replace("EUR", "€"))
 
 
 def predict_manual(
@@ -111,6 +136,8 @@ def predict_manual(
     )
     predicted = np.expm1(pipeline.predict(row)[0])
     print(f"Predicted value: €{predicted:,.0f}")
+    for line in format_confidence(row.iloc[0], predicted, load_calibration()):
+        print(line.replace("EUR", "€").strip().replace("  ", " "))
 
 
 def main() -> None:
