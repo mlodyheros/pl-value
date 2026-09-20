@@ -30,7 +30,8 @@ CURRENT_SEASON = 2026
 # Transfermarkt only exposes *current* market value (its season filters don't
 # actually change results), so the target is always "current value" and these
 # seasons only feed the recent-form features (goals/assists/etc).
-SEASONS = [2022, 2023, 2024, 2025]
+# 2022 is omitted: football-data.org's free tier returns 403 for it.
+SEASONS = [2023, 2024, 2025]
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"

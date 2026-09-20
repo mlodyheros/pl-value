@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import difflib
 import logging
+import unicodedata
 
 import pandas as pd
 
@@ -18,6 +19,12 @@ logger = logging.getLogger(__name__)
 _EMPTY_STATS = {"goals": 0, "assists": 0, "penalties": 0, "appearances": 0}
 
 
+def normalize_name(name: str) -> str:
+    """Accent-/case-insensitive key so 'Jérémy Doku' joins 'Jeremy Doku'."""
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return " ".join(ascii_name.lower().split())
+
+
 def _aggregate_performance_stats(seasons: list[int]) -> dict[str, dict]:
     """Sum goals/assists/penalties/appearances per player name across seasons."""
     stats: dict[str, dict] = {}
@@ -25,7 +32,7 @@ def _aggregate_performance_stats(seasons: list[int]) -> dict[str, dict]:
         scorers = fd.get_scorers(season)
         logger.info("Season %s: %d scorer records", season, len(scorers))
         for entry in scorers:
-            name = entry["player"]["name"]
+            name = normalize_name(entry["player"]["name"])
             row = stats.setdefault(name, dict(_EMPTY_STATS))
             row["goals"] += entry.get("goals") or 0
             row["assists"] += entry.get("assists") or 0
@@ -35,6 +42,8 @@ def _aggregate_performance_stats(seasons: list[int]) -> dict[str, dict]:
 
 
 def _match_stats(name: str, stats: dict[str, dict]) -> tuple[dict, bool]:
+    """Look up a player's stats by (normalized) name, falling back to fuzzy match."""
+    name = normalize_name(name)
     if name in stats:
         return stats[name], True
     close = difflib.get_close_matches(name, stats.keys(), n=1, cutoff=0.85)
@@ -63,7 +72,7 @@ def build_dataset() -> pd.DataFrame:
         player_stats, matched = _match_stats(player["name"], stats)
         if not matched:
             unmatched.append(player["name"])
-        rows.append({**player, **player_stats})
+        rows.append({**player, **player_stats, "has_scorer_record": int(matched)})
 
     if unmatched:
         logger.info(

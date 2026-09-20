@@ -84,11 +84,15 @@ def get_teams(season: int) -> list[dict]:
     return data.get("teams", []) if data else []
 
 
-def get_scorers(season: int, limit: int = 100) -> list[dict]:
-    """Top scorers for the season: goals, assists, penalties, appearances."""
+def get_scorers(season: int, limit: int = 500) -> list[dict]:
+    """Everyone with a goal or assist that season: goals, assists, penalties, appearances.
+
+    The default limit of 10 (and the 100 this used to request) silently truncates
+    the list; 500 comfortably covers every scorer in a 20-club season.
+    """
     data = _get(
         f"/competitions/{COMPETITION}/scorers",
-        cache_name=f"scorers_{season}",
+        cache_name=f"scorers_{season}_limit{limit}",
         params={"season": season, "limit": limit},
     )
     return data.get("scorers", []) if data else []

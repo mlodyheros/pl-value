@@ -11,9 +11,7 @@ import numpy as np
 import pandas as pd
 
 from src.config import MODEL_PATH, PROCESSED_DATASET_PATH
-from src.features import CATEGORICAL_FEATURES, NUMERIC_FEATURES
-
-FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+from src.features import prepare_features
 
 
 def load_pipeline():
@@ -21,7 +19,7 @@ def load_pipeline():
 
 
 def predict_for_row(pipeline, row: pd.Series) -> float:
-    X = row[FEATURE_COLUMNS].to_frame().T
+    X = prepare_features(row.to_frame().T.infer_objects())
     return float(np.expm1(pipeline.predict(X)[0]))
 
 
@@ -50,19 +48,21 @@ def predict_player(name: str) -> None:
 
 def predict_manual(age, position, club, goals, assists, penalties, appearances) -> None:
     pipeline = load_pipeline()
-    row = pd.DataFrame(
-        [
-            {
-                "age": age,
-                "goals": goals,
-                "assists": assists,
-                "penalties": penalties,
-                "appearances": appearances,
-                "position": position,
-                "club": club,
-            }
-        ]
-    )[FEATURE_COLUMNS]
+    row = prepare_features(
+        pd.DataFrame(
+            [
+                {
+                    "age": age,
+                    "goals": goals,
+                    "assists": assists,
+                    "penalties": penalties,
+                    "appearances": appearances,
+                    "position": position,
+                    "club": club,
+                }
+            ]
+        )
+    )
     predicted = np.expm1(pipeline.predict(row)[0])
     print(f"Predicted value: €{predicted:,.0f}")
 

@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from src.features import prepare_features
 from src.model import build_pipeline, train
 
 
@@ -44,7 +45,7 @@ def test_train_produces_sane_metrics_and_predictions():
     assert metrics["mae_eur"] >= 0
     assert metrics["rmse_eur"] >= 0
 
-    sample = df.drop(columns="market_value_eur").iloc[:3]
+    sample = prepare_features(df.iloc[:3])
     preds = pipeline.predict(sample)
     assert preds.shape == (3,)
     assert np.all(np.isfinite(preds))

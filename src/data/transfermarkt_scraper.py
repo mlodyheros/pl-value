@@ -80,7 +80,7 @@ def _search_query_candidates(club_name: str) -> list[str]:
     club out of the results entirely, and "&" breaks matching too. So we
     fall back progressively rather than trusting the first query.
     """
-    stripped = re.sub(r"\s+(FC|AFC)$", "", club_name, flags=re.IGNORECASE).strip()
+    stripped = _strip_club_suffix(club_name)
     queries = [stripped]
     if "&" in stripped:
         queries.append(stripped.replace("&", "and"))
@@ -108,9 +108,35 @@ def _find_club_candidates(html: str) -> list[tuple[str, str, str]]:
                 continue
             match = re.match(r"/([\w-]+)/startseite/verein/(\d+)", link.get("href", ""))
             if match:
-                candidates.append((link.get_text(strip=True), match.group(1), match.group(2)))
+                candidate = (link.get_text(strip=True), match.group(1), match.group(2))
+                if candidate not in candidates:
+                    candidates.append(candidate)
         return candidates
     return []
+
+
+def _strip_club_suffix(name: str) -> str:
+    return re.sub(r"\s+(FC|AFC)$", "", name, flags=re.IGNORECASE).strip()
+
+
+def _pick_best_candidate(
+    club_name: str, candidates: list[tuple[str, str, str]]
+) -> tuple[str, str, str]:
+    """Choose the search result that best matches a football-data.org club name.
+
+    Names are compared with the FC/AFC suffix stripped: otherwise "Crystal
+    Palace FC" exactly matches an obscure lookalike club further down the
+    results instead of the real "Crystal Palace" that Transfermarkt ranks first.
+    Results are already ranked by Transfermarkt, so ties go to the first hit.
+    """
+    target = _strip_club_suffix(club_name).lower()
+    for candidate in candidates:
+        if _strip_club_suffix(candidate[0]).lower() == target:
+            return candidate
+
+    names = [c[0] for c in candidates]
+    close = difflib.get_close_matches(club_name, names, n=1, cutoff=0.4)
+    return next((c for c in candidates if c[0] == close[0]), candidates[0]) if close else candidates[0]
 
 
 def resolve_club_id(club_name: str) -> dict | None:
@@ -134,13 +160,7 @@ def resolve_club_id(club_name: str) -> dict | None:
         logger.warning("Could not resolve Transfermarkt club id for %r", club_name)
         return None
 
-    names = [c[0] for c in candidates]
-    exact = next((c for c in candidates if c[0].lower() == club_name.lower()), None)
-    if exact:
-        best = exact
-    else:
-        close = difflib.get_close_matches(club_name, names, n=1, cutoff=0.4)
-        best = next((c for c in candidates if c[0] == close[0]), candidates[0]) if close else candidates[0]
+    best = _pick_best_candidate(club_name, candidates)
 
     entry = {"slug": best[1], "id": best[2]}
     cache[club_name] = entry

@@ -10,7 +10,8 @@ stats, and lets you compare the model's estimate against their actual value.
   and nationality, are scraped from Transfermarkt's current squad pages.
 - A scikit-learn **linear regression** pipeline (on log-transformed value,
   since transfer values are heavily right-skewed) is trained on the merged
-  dataset.
+  dataset. Features: age (and age², since value peaks mid-20s), goals,
+  assists, penalties, appearances, a `has_scorer_record` flag, position and club.
 
 ## Setup
 
@@ -34,7 +35,7 @@ FOOTBALL_DATA_API_KEY=your_key_here
 #    data/raw/ so re-runs are near-instant.
 python -m src.data.build_dataset
 
-# 2. Train the model. Prints R²/MAE/RMSE and writes
+# 2. Train the model. Prints held-out and 5-fold CV R²/MAE/RMSE and writes
 #    reports/figures/pred_vs_actual.png and models/linear_regression.joblib
 python -m src.model
 
@@ -46,6 +47,15 @@ python -m src.predict --age 24 --position "Centre-Forward" --club "Manchester Ci
     --goals 20 --assists 8 --appearances 34
 ```
 
+## Current performance
+
+5-fold cross-validated on ~540 players: **R² ≈ 0.55** (on log value), **MAE ≈ €10.3m**.
+Trust the CV numbers over the single 80/20 split, which swings by ~0.1 R² between
+seeds at this dataset size. Tree models (random forest, gradient boosting) and
+position×stat interaction features were tried and did not beat the linear model.
+The model systematically under-predicts the very highest values (e.g. Haaland),
+which stats alone don't explain.
+
 ## Known limitations
 
 - **No minutes-played data**: football-data.org's free tier doesn't expose
@@ -56,11 +66,14 @@ python -m src.predict --age 24 --position "Centre-Forward" --club "Manchester Ci
   filters affect squad membership, not the value shown), so the model
   predicts *today's* value from *recent* performance, not a value at a
   specific past date.
-- **Stats only exist for scorers**: football-data.org's free-tier scorers
-  endpoint only lists players who've scored or assisted. Players outside
-  that list (many defenders/keepers) get `0` for all performance stats
-  rather than their true totals - `build_dataset.py` logs how many players
-  this affects.
+- **Stats only exist for scorers**: football-data.org's scorers endpoint only
+  lists players who've scored or assisted. Players outside that list (about
+  half the squad: most defenders/keepers) get `0` for all performance stats
+  rather than their true totals. The `has_scorer_record` feature lets the
+  model tell "no data" from a genuine zero, and `build_dataset.py` logs how
+  many players this affects.
+- **Only 3 seasons of stats**: the free tier returns 403 for 2022, so
+  `SEASONS` covers 2023-2025.
 - **Fuzzy name matching**: players are joined between the two data sources by
   name (exact, falling back to fuzzy matching). This occasionally misses or
   mismatches, especially for accented names.
