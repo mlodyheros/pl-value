@@ -14,6 +14,7 @@ from collections import Counter
 import pandas as pd
 
 from backend.config import PROCESSED_DATASET_PATH, SEASONS
+from backend.sources import fpl_archive_client as archive
 from backend.sources import fpl_client
 from backend.sources import transfermarkt_scraper as tm
 from backend.sources import understat_client as us
@@ -131,13 +132,21 @@ def _fpl_columns(player: dict | None, gameweeks: int) -> dict:
     return {**values, "fpl_id": player.get("fpl_id"), "fpl_gameweeks": gameweeks, "has_fpl_record": 1}
 
 
-def _history_columns(player: dict | None) -> dict:
-    """Past-season FPL stats over ``SEASONS`` for a matched FPL player."""
-    history = _EMPTY_HIST
-    if player is not None and player.get("fpl_id") is not None:
-        history = fpl_client.aggregate_history(
-            fpl_client.get_player_history(player["fpl_id"]), SEASONS
-        )
+def _history_columns(name: str, position: str, player: dict | None, index: dict) -> dict:
+    """Past PL seasons over ``SEASONS``.
+
+    Joined on FPL's stable player code where we have one. Players missing from
+    this season's FPL game have no code, so they fall back to an exact name
+    match - which is how long-serving players like Dominic Solanke get their
+    history back instead of looking like newcomers.
+    """
+    records = archive.lookup(
+        index,
+        player.get("fpl_code") if player else None,
+        name,
+        us.transfermarkt_position_group(position),
+    )
+    history = archive.aggregate(records) if records else _EMPTY_HIST
     return {**history, "has_hist_record": int(history["hist_seasons"] > 0)}
 
 
@@ -153,6 +162,7 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
     logger.info("Scraped %d players total from Transfermarkt", len(squads))
 
     fpl_by_full, fpl_by_web = _index_fpl_players(fpl_client.parse_players(fpl_data))
+    pl_history = archive.build_index(SEASONS)
     understat = us.build_index(seasons=SEASONS)
     logger.info("Understat: indexed %d players outside the PL", len(understat))
 
@@ -166,17 +176,10 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
             {
                 **player,
                 **_fpl_columns(fpl_player, gameweeks),
-                **_history_columns(fpl_player),
+                **_history_columns(player["name"], player.get("position", ""), fpl_player, pl_history),
                 **_nonpl_columns(player, understat),
             }
         )
-        if len(rows) % 100 == 0:
-            logger.info(
-                "Processed %d/%d players (FPL history is fetched once, then cached)",
-                len(rows),
-                len(squads),
-            )
-
     if fpl_unmatched:
         logger.info(
             "%d players had no FPL record (FPL stats default to 0), e.g. %s",

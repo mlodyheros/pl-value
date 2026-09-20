@@ -92,17 +92,16 @@ def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
         bd.fpl_client,
         "parse_players",
         lambda data: [
-            {**_fpl("Erling", "Haaland", "Haaland", minutes=360), "fpl_id": 411, "fpl_starts": 4, "fpl_xg": 3.3}
+            {**_fpl("Erling", "Haaland", "Haaland", minutes=360), "fpl_id": 411,
+             "fpl_code": 223094, "fpl_starts": 4, "fpl_xg": 3.3}
         ],
     )
-    history_calls = []
-
-    def fake_history(fpl_id):
-        history_calls.append(fpl_id)
-        return [{"season_name": "2025/26", "minutes": 2953, "starts": 34, "goals_scored": 27,
-                 "assists": 7, "expected_goals": "25.50", "expected_assists": "2.67"}]
-
-    monkeypatch.setattr(bd.fpl_client, "get_player_history", fake_history)
+    monkeypatch.setattr(
+        bd.archive, "build_index",
+        lambda seasons: {"by_code": {223094: [{"minutes": 2953, "starts": 34, "goals": 27,
+                                               "assists": 7, "xg": 25.5, "xa": 2.67}]},
+                         "by_name": {}},
+    )
     monkeypatch.setattr(bd, "SEASONS", [2025])
     monkeypatch.setattr(bd, "PROCESSED_DATASET_PATH", tmp_path / "out" / "players.csv")
 
@@ -114,8 +113,6 @@ def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
     assert list(df["fpl_minutes"]) == [360, 0]
     assert list(df["fpl_gameweeks"]) == [4, 4]
     assert df.loc[0, "fpl_id"] == 411
-    # Past-season history is joined for matched players only (no request for Ederson).
-    assert history_calls == [411]
     assert list(df["has_hist_record"]) == [1, 0]
     assert list(df["hist_minutes"]) == [2953, 0]
     assert list(df["hist_goals"]) == [27, 0]
@@ -163,3 +160,34 @@ def test_nonpl_columns_flag_and_aggregate():
     missing = bd._nonpl_columns({"name": "Nobody", "position": "Goalkeeper"}, _us_index())
     assert missing["has_nonpl_record"] == 0
     assert missing["nonpl_minutes"] == 0
+
+
+def test_history_columns_joins_by_stable_code():
+    index = {"by_code": {223094: [{"minutes": 2953, "starts": 34, "goals": 27,
+                                   "assists": 7, "xg": 25.5, "xa": 2.67}]}, "by_name": {}}
+
+    cols = bd._history_columns("Erling Haaland", "Centre-Forward", {"fpl_code": 223094}, index)
+
+    assert cols["has_hist_record"] == 1
+    assert cols["hist_minutes"] == 2953
+    assert cols["hist_seasons"] == 1
+
+
+def test_history_columns_falls_back_to_name_for_players_absent_from_fpl():
+    """Regression: players missing from this season's FPL game have no code, so
+    their years of PL history used to be invisible and they looked like newcomers."""
+    index = {"by_code": {}, "by_name": {"dominic solanke": [
+        {"minutes": 2000, "starts": 20, "goals": 12, "assists": 3, "xg": 10.0,
+         "xa": 2.0, "position": "F"}]}}
+
+    cols = bd._history_columns("Dominic Solanke", "Centre-Forward", None, index)
+
+    assert cols["has_hist_record"] == 1
+    assert cols["hist_goals"] == 12
+
+
+def test_history_columns_empty_when_player_is_genuinely_new():
+    cols = bd._history_columns("Brand New", "Centre-Back", None, {"by_code": {}, "by_name": {}})
+
+    assert cols["has_hist_record"] == 0
+    assert cols["hist_minutes"] == 0

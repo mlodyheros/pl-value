@@ -3,11 +3,14 @@
 Predicts Premier League players' transfer market value from their on-pitch
 stats, and lets you compare the model's estimate against their actual value.
 
-- **Playing history** comes from the official
+- **This season** comes from the official
   [Fantasy Premier League API](https://fantasy.premierleague.com/api/bootstrap-static/)
-  (free, no key, no registration): the club list, this season's minutes and
-  starts, and each player's past PL seasons (minutes, goals, assists, xG/xA).
-  Unlike a top-scorers feed it covers defenders and keepers too.
+  (free, no key, no registration): the club list, minutes and starts.
+- **Past PL seasons** come from the
+  [vaastav/Fantasy-Premier-League](https://github.com/vaastav/Fantasy-Premier-League)
+  archive - one CSV per season instead of one API request per player, and it
+  includes players who aren't in *this* season's FPL game. Unlike a top-scorers
+  feed it covers defenders and keepers too.
 - **Non-PL playing record** comes from [Understat](https://understat.com)
   (La Liga, Bundesliga, Serie A, Ligue 1, Russian league). A quarter of a PL
   squad has never played in the Premier League, and without this the model has
@@ -40,9 +43,9 @@ No API keys and no accounts: both sources are public.
 
 ```bash
 # 1. Build the dataset (FPL API + Transfermarkt scrape). Raw responses are
-#    cached under data/raw/, so re-runs are near-instant. Per-player FPL
-#    history is one request each (~10 min cold, then cached for 30 days);
-#    the season-to-date response expires after 24h (--refresh-fpl forces it).
+#    cached under data/raw/, so re-runs are near-instant (a cold build is well
+#    under a minute). The season-to-date FPL response expires after 24h;
+#    --refresh-fpl forces a refetch.
 python -m backend.data.build_dataset
 
 # 2. Train the model. Prints held-out and 5-fold CV R²/MAE/RMSE and writes
@@ -74,7 +77,8 @@ seeds at this dataset size.
 | + this season's playing time | 0.58 | €9.3m | €25.2m |
 | + past seasons' minutes | 0.64 | €8.5m | €19.8m |
 | + past-season goals+assists **per 90** | 0.65 | €8.2m | €19.3m |
-| + non-PL record as a **fallback** | **0.67** | **€8.0m** | **€19.2m** |
+| + non-PL record as a **fallback** | 0.67 | €8.0m | €19.2m |
+| + PL history from the season archive | **0.69** | **€7.9m** | **€19.1m** |
 
 Three findings worth keeping in mind:
 
@@ -83,6 +87,10 @@ Three findings worth keeping in mind:
 - **Rates matter, totals don't.** Raw goal totals add nothing - they're largely a
   restatement of minutes played. Goals+assists *per 90* is independent of playing
   time and does help, especially for expensive forwards.
+- **Recent history only.** Extending the archive back to 2018 made things *worse*
+  (R² 0.673 -> 0.655, MAE €8.25m -> €8.51m). Form from six years ago says little
+  about today's value, and it doesn't reach the players who are missing history
+  anyway - they're new, not old. `SEASONS` stays at four.
 - **Fallbacks beat extra columns.** Adding the non-PL record as its own feature
   made things *worse* (top-decile MAE €18.7m -> €20.8m): it is zero for most of
   the squad, so it mostly added noise. Folding it into the same feature as the PL
@@ -110,9 +118,11 @@ smearing, and FPL price (better log-R², much worse euro error).
   value from *recent* performance, not a value at a specific past date.
 - **Partial coverage for new arrivals**: Understat fills in players arriving from
   the big five leagues, but not Portugal, the Championship, the Eredivisie or
-  anywhere else - so roughly half of the players with no PL history still have no
-  record at all (`has_any_history` flags them), and they get under-predicted. This
-  remains the largest source of error.
+  anywhere else - so 61 players (~11%, €771m of market value) still have no record
+  anywhere (`has_any_history` flags them). Their median error is ~56% against ~31%
+  for everyone else, in both directions. This is the largest remaining gap, though
+  closing it entirely would only move overall MAE by ~2%: these are mostly cheap
+  players, so the cost shows up per-player rather than in the average.
 - **Name matching across sources is guarded, not perfect**: an exact name match is
   trusted; anything looser must also agree on position group, because fuzzy
   matching alone paired a centre-back with a goalkeeper. The guard costs some
@@ -141,7 +151,8 @@ backend/
   evaluate.py                     predicted-vs-actual and residual plots
   predict.py                      CLI to compare prediction vs actual
   sources/
-    fpl_client.py                 FPL API: clubs, current season, per-player history
+    fpl_client.py                 FPL API: clubs and this season's stats
+    fpl_archive_client.py         past PL seasons, one CSV per season (cached)
     understat_client.py           Understat league data for non-PL seasons (cached)
     transfermarkt_scraper.py      squad/value scraper (cached, rate-limited)
     names.py                      name normalisation shared by the joins

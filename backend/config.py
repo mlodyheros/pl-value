@@ -5,9 +5,11 @@ from pathlib import Path
 FPL_BASE_URL = "https://fantasy.premierleague.com/api"
 # FPL numbers are season-to-date, so a cached copy goes stale after a gameweek
 FPL_CACHE_MAX_AGE_HOURS = 24
-# Past-season history is immutable until a new season completes
-FPL_HISTORY_CACHE_MAX_AGE_DAYS = 30
-FPL_HISTORY_DELAY_SECONDS = 0.3
+# Past-season PL stats come from a community archive of the FPL API, one CSV
+# per season, instead of one request per player against the live API.
+FPL_ARCHIVE_BASE_URL = (
+    "https://raw.githubusercontent.com/vaastav/Fantasy-Premier-League/master/data"
+)
 
 UNDERSTAT_BASE_URL = "https://understat.com"
 UNDERSTAT_DELAY_SECONDS = 1.0
@@ -44,6 +46,7 @@ FIGURES_DIR = PROJECT_ROOT / "reports" / "figures"
 TRANSFERMARKT_RAW_DIR = RAW_DIR / "transfermarkt"
 FPL_RAW_DIR = RAW_DIR / "fpl"
 UNDERSTAT_RAW_DIR = RAW_DIR / "understat"
+FPL_ARCHIVE_RAW_DIR = RAW_DIR / "fpl_archive"
 TRANSFERMARKT_CLUB_ID_CACHE = TRANSFERMARKT_RAW_DIR / "club_ids.json"
 
 PROCESSED_DATASET_PATH = PROCESSED_DIR / "pl_players.csv"
