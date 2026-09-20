@@ -65,6 +65,14 @@ def predict_player(name: str) -> None:
                 f"  Past {row['hist_seasons']:.0f} PL season(s): {row['hist_minutes']:.0f} minutes, "
                 f"{row['hist_goals']:.0f}G {row['hist_assists']:.0f}A"
             )
+        elif row.get("has_nonpl_record") == 1:
+            print(
+                f"  Past {row['nonpl_seasons']:.0f} season(s) outside the PL: "
+                f"{row['nonpl_minutes']:.0f} minutes, "
+                f"{row['nonpl_goals']:.0f}G {row['nonpl_assists']:.0f}A"
+            )
+        else:
+            print("  No recent history in any covered league (prediction is weak)")
         print(f"  Actual value:    €{actual:,.0f}")
         print(f"  Predicted value: €{predicted:,.0f}  ({diff_pct:+.1f}% vs actual)")
 
@@ -75,10 +83,12 @@ def predict_manual(
     club,
     minutes_share=None,
     starts_share=None,
-    hist_minutes_share=None,
+    career_minutes_share=None,
+    career_gi_per90=None,
 ) -> None:
-    """``minutes_share``/``starts_share`` (0-1) are this season's FPL playing time,
-    ``hist_minutes_share`` (0-1) the share played across past PL seasons. Omit if unknown."""
+    """``minutes_share``/``starts_share`` (0-1) are this season's playing time;
+    ``career_minutes_share`` (0-1) and ``career_gi_per90`` describe recent completed
+    seasons in any covered league. Omit any you don't know."""
     pipeline = load_pipeline()
     validate_categories(pipeline, position=position, club=club)
     row = prepare_features(
@@ -91,8 +101,10 @@ def predict_manual(
                     "has_fpl_record": int(minutes_share is not None or starts_share is not None),
                     "minutes_share": minutes_share or 0.0,
                     "starts_share": starts_share or 0.0,
-                    "has_hist_record": int(hist_minutes_share is not None),
-                    "hist_minutes_share": hist_minutes_share or 0.0,
+                    "has_hist_record": 0,
+                    "has_any_history": int(career_minutes_share is not None),
+                    "career_minutes_share": career_minutes_share or 0.0,
+                    "career_gi_per90": career_gi_per90 or 0.0,
                 }
             ]
         )
@@ -114,9 +126,12 @@ def main() -> None:
         "--starts-share", type=float, help="starts per gameweek this season (0-1)"
     )
     parser.add_argument(
-        "--hist-minutes-share",
+        "--career-minutes-share",
         type=float,
-        help="share of minutes played across past PL seasons (0-1)",
+        help="share of minutes played across recent completed seasons (0-1)",
+    )
+    parser.add_argument(
+        "--career-gi-per90", type=float, help="career goals+assists per 90 minutes"
     )
     args = parser.parse_args()
 
@@ -129,7 +144,8 @@ def main() -> None:
             args.club,
             args.minutes_share,
             args.starts_share,
-            args.hist_minutes_share,
+            args.career_minutes_share,
+            args.career_gi_per90,
         )
     else:
         parser.error("Provide --player NAME, or --age/--position/--club for a manual prediction")

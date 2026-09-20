@@ -127,3 +127,38 @@ def test_add_derived_features_hist_gi_per90_is_a_rate_not_a_total():
 
 def test_add_derived_features_defaults_gi_per90_without_history():
     assert (add_derived_features(_sample_df())["hist_gi_per90"] == 0).all()
+
+
+def test_career_features_use_pl_history_when_present():
+    df = _sample_df().assign(
+        has_hist_record=1, hist_minutes=3420, hist_seasons=1, hist_goals=10, hist_assists=0,
+        has_nonpl_record=1, nonpl_minutes=900, nonpl_available_minutes=3060,
+        nonpl_goals=99, nonpl_assists=0,
+    )
+    out = add_derived_features(df)
+
+    # PL history wins: the non-PL record is only ever a fallback.
+    assert (out["career_minutes_share"] == 1.0).all()
+    assert (out["career_gi_per90"] == 10 / 3420 * 90).all()
+    assert (out["has_any_history"] == 1).all()
+
+
+def test_career_features_fall_back_to_non_pl_record():
+    df = _sample_df().assign(
+        has_hist_record=0, hist_minutes=0, hist_seasons=0, hist_goals=0, hist_assists=0,
+        has_nonpl_record=1, nonpl_minutes=1530, nonpl_available_minutes=3060,
+        nonpl_goals=17, nonpl_assists=0,
+    )
+    out = add_derived_features(df)
+
+    assert (out["career_minutes_share"] == 0.5).all()
+    assert (out["career_gi_per90"] == 1.0).all()
+    assert (out["has_any_history"] == 1).all()
+
+
+def test_career_features_zero_for_players_with_no_history_anywhere():
+    out = add_derived_features(_sample_df())
+
+    assert (out["career_minutes_share"] == 0).all()
+    assert (out["career_gi_per90"] == 0).all()
+    assert (out["has_any_history"] == 0).all()

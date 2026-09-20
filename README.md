@@ -8,13 +8,18 @@ stats, and lets you compare the model's estimate against their actual value.
   (free, no key, no registration): the club list, this season's minutes and
   starts, and each player's past PL seasons (minutes, goals, assists, xG/xA).
   Unlike a top-scorers feed it covers defenders and keepers too.
+- **Non-PL playing record** comes from [Understat](https://understat.com)
+  (La Liga, Bundesliga, Serie A, Ligue 1, Russian league). A quarter of a PL
+  squad has never played in the Premier League, and without this the model has
+  nothing to go on for them.
 - **Market values** (the prediction target), plus each player's age, position
   and nationality, are scraped from Transfermarkt's current squad pages.
 - A scikit-learn **linear regression** pipeline (on log-transformed value,
   since transfer values are heavily right-skewed) is trained on the merged
   dataset. Features: age and age² (value peaks mid-20s), this season's
-  minutes/starts share, the share of minutes played in past PL seasons,
-  past-season goals+assists per 90, data-coverage flags, position and club.
+  minutes/starts share, career minutes share and goals+assists per 90 (from
+  Premier League history where it exists, otherwise from other big leagues),
+  data-coverage flags, position and club.
 
 ## Layout
 
@@ -68,15 +73,21 @@ seeds at this dataset size.
 | + age² (value peaks mid-20s) | 0.50 | €10.0m | €26.8m |
 | + this season's playing time | 0.58 | €9.3m | €25.2m |
 | + past seasons' minutes | 0.64 | €8.5m | €19.8m |
-| + past-season goals+assists **per 90** | **0.65** | **€8.2m** | **€19.3m** |
+| + past-season goals+assists **per 90** | 0.65 | €8.2m | €19.3m |
+| + non-PL record as a **fallback** | **0.67** | **€8.0m** | **€19.2m** |
 
-Two findings worth keeping in mind:
+Three findings worth keeping in mind:
 
 - **Playing time beats output.** How much a player plays, for which club, at what
   age explains most of the value. Past-season minutes was the single biggest gain.
 - **Rates matter, totals don't.** Raw goal totals add nothing - they're largely a
   restatement of minutes played. Goals+assists *per 90* is independent of playing
   time and does help, especially for expensive forwards.
+- **Fallbacks beat extra columns.** Adding the non-PL record as its own feature
+  made things *worse* (top-decile MAE €18.7m -> €20.8m): it is zero for most of
+  the squad, so it mostly added noise. Folding it into the same feature as the PL
+  history - PL record where it exists, otherwise the non-PL one - improved
+  everything, and cut error for players new to the league by ~11%.
 
 Training weights players by √value. Plain log-value regression optimises *relative*
 error, so cheap players outvote the stars; weighting lowers euro MAE overall and for
@@ -97,10 +108,15 @@ smearing, and FPL price (better log-R², much worse euro error).
   historical values through the pages this project scrapes (its season filters
   affect squad membership, not the value shown), so the model predicts *today's*
   value from *recent* performance, not a value at a specific past date.
-- **No PL history for new arrivals**: FPL history only covers seasons a player
-  spent in the Premier League, so signings from abroad and academy players have
-  none and get under-predicted. `has_hist_record` flags them. This is currently
-  the largest source of error.
+- **Partial coverage for new arrivals**: Understat fills in players arriving from
+  the big five leagues, but not Portugal, the Championship, the Eredivisie or
+  anywhere else - so roughly half of the players with no PL history still have no
+  record at all (`has_any_history` flags them), and they get under-predicted. This
+  remains the largest source of error.
+- **Name matching across sources is guarded, not perfect**: an exact name match is
+  trusted; anything looser must also agree on position group, because fuzzy
+  matching alone paired a centre-back with a goalkeeper. The guard costs some
+  coverage to avoid filing the wrong player's stats.
 - **This season's data is only a few gameweeks old** at the time of writing, so
   `minutes_share` is a noisy early-season signal and the past-season history
   carries most of the weight. Shares are normalised by gameweeks played so the
@@ -126,6 +142,7 @@ backend/
   predict.py                      CLI to compare prediction vs actual
   sources/
     fpl_client.py                 FPL API: clubs, current season, per-player history
+    understat_client.py           Understat league data for non-PL seasons (cached)
     transfermarkt_scraper.py      squad/value scraper (cached, rate-limited)
     names.py                      name normalisation shared by the joins
     build_dataset.py              joins the sources into one CSV

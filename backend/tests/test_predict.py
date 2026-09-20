@@ -55,6 +55,9 @@ def test_predict_player_reports_no_match(monkeypatch, tmp_path, capsys):
 def test_predict_manual_history_changes_prediction(monkeypatch, capsys):
     df = _df().assign(
         has_hist_record=1,
+        has_any_history=1,
+        career_minutes_share=lambda d: d.goals / 20,
+        career_gi_per90=lambda d: d.goals / 20,
         hist_minutes_share=lambda d: d.goals / 20,
         has_fpl_record=1,
         minutes_share=lambda d: d.goals / 20,
@@ -67,7 +70,7 @@ def test_predict_manual_history_changes_prediction(monkeypatch, capsys):
         predict.predict_manual(24, "Centre-Forward", "A FC", **kwargs)
         return float(capsys.readouterr().out.split("€")[1].replace(",", ""))
 
-    assert euros(hist_minutes_share=0.95) > euros(hist_minutes_share=0.05)
+    assert euros(career_minutes_share=0.95) > euros(career_minutes_share=0.05)
 
 
 def test_predict_manual_playing_time_changes_prediction(monkeypatch, capsys):

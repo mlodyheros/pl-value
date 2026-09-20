@@ -16,6 +16,7 @@ import pandas as pd
 from backend.config import PROCESSED_DATASET_PATH, SEASONS
 from backend.sources import fpl_client
 from backend.sources import transfermarkt_scraper as tm
+from backend.sources import understat_client as us
 from backend.sources.names import normalize_name
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,15 @@ _EMPTY_HIST = {
     "hist_xa": 0.0,
     "hist_seasons": 0,
 }
+_EMPTY_NONPL = {
+    "nonpl_minutes": 0,
+    "nonpl_goals": 0,
+    "nonpl_assists": 0,
+    "nonpl_seasons": 0,
+    "nonpl_available_minutes": 0,
+}
 _FPL_FUZZY_CUTOFF = 0.88
+_UNDERSTAT_FUZZY_CUTOFF = 0.88
 
 
 def _index_fpl_players(players: list[dict]) -> tuple[dict, dict]:
@@ -76,6 +85,45 @@ def _match_fpl(name: str, by_full: dict, by_web: dict) -> dict | None:
     return by_full[close[0]] if close else None
 
 
+def _match_understat(name: str, position: str, index: dict) -> list[dict] | None:
+    """Find a player's non-PL record, refusing any match that isn't certain.
+
+    An exact name match is trusted. Anything looser has to agree on position
+    group as well: without that guard the fuzzy matcher pairs (real examples)
+    centre-back "Antonio Silva" with goalkeeper "Antonio Sivera", and silently
+    files a keeper's numbers under a defender.
+    """
+    key = normalize_name(name)
+    if key in index:
+        return index[key]
+
+    candidate = None
+    tokens = set(key.split())
+    if len(tokens) >= 2:
+        supersets = [k for k in index if tokens <= set(k.split())]
+        if len(supersets) == 1:
+            candidate = supersets[0]
+    if candidate is None:
+        close = difflib.get_close_matches(key, index.keys(), n=1, cutoff=_UNDERSTAT_FUZZY_CUTOFF)
+        candidate = close[0] if close else None
+    if candidate is None:
+        return None
+
+    wanted = us.transfermarkt_position_group(position)
+    if us.position_group(index[candidate][0]["position"]) != wanted:
+        logger.debug("Rejected Understat match %r -> %r (position mismatch)", name, candidate)
+        return None
+    return index[candidate]
+
+
+def _nonpl_columns(player: dict, index: dict) -> dict:
+    """Non-PL playing record, only for players with no PL history to speak of."""
+    records = _match_understat(player["name"], player.get("position", ""), index)
+    if not records:
+        return {**_EMPTY_NONPL, "has_nonpl_record": 0}
+    return {**us.aggregate(records), "has_nonpl_record": 1}
+
+
 def _fpl_columns(player: dict | None, gameweeks: int) -> dict:
     if player is None:
         return {**_EMPTY_FPL, "fpl_id": None, "fpl_gameweeks": gameweeks, "has_fpl_record": 0}
@@ -105,6 +153,8 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
     logger.info("Scraped %d players total from Transfermarkt", len(squads))
 
     fpl_by_full, fpl_by_web = _index_fpl_players(fpl_client.parse_players(fpl_data))
+    understat = us.build_index(seasons=SEASONS)
+    logger.info("Understat: indexed %d players outside the PL", len(understat))
 
     rows = []
     fpl_unmatched = []
@@ -117,6 +167,7 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
                 **player,
                 **_fpl_columns(fpl_player, gameweeks),
                 **_history_columns(fpl_player),
+                **_nonpl_columns(player, understat),
             }
         )
         if len(rows) % 100 == 0:

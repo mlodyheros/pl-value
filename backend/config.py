@@ -9,6 +9,14 @@ FPL_CACHE_MAX_AGE_HOURS = 24
 FPL_HISTORY_CACHE_MAX_AGE_DAYS = 30
 FPL_HISTORY_DELAY_SECONDS = 0.3
 
+UNDERSTAT_BASE_URL = "https://understat.com"
+UNDERSTAT_DELAY_SECONDS = 1.0
+# Understat's coverage. The Premier League is excluded on purpose: FPL already
+# supplies it, and these features exist to describe a player's career *before*
+# they arrived. Portugal, the Championship and the Eredivisie aren't covered by
+# Understat at all, which is why some new arrivals still have no history.
+UNDERSTAT_LEAGUES = ["La liga", "Bundesliga", "Serie A", "Ligue 1", "RFPL"]
+
 TRANSFERMARKT_BASE_URL = "https://www.transfermarkt.com"
 TRANSFERMARKT_HEADERS = {
     "User-Agent": (
@@ -35,6 +43,7 @@ FIGURES_DIR = PROJECT_ROOT / "reports" / "figures"
 
 TRANSFERMARKT_RAW_DIR = RAW_DIR / "transfermarkt"
 FPL_RAW_DIR = RAW_DIR / "fpl"
+UNDERSTAT_RAW_DIR = RAW_DIR / "understat"
 TRANSFERMARKT_CLUB_ID_CACHE = TRANSFERMARKT_RAW_DIR / "club_ids.json"
 
 PROCESSED_DATASET_PATH = PROCESSED_DIR / "pl_players.csv"

@@ -122,3 +122,44 @@ def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
     assert df.loc[0, "hist_xg"] == 25.5
     assert list(df["hist_seasons"]) == [1, 0]
     assert pd.read_csv(tmp_path / "out" / "players.csv").shape[0] == 2
+
+
+def _us_index():
+    return {
+        "bradley barcola": [{"position": "F M S", "minutes": 2223, "goals": 14,
+                             "assists": 9, "season_minutes": 3060}],
+        "antonio sivera": [{"position": "GK", "minutes": 3060, "goals": 0,
+                            "assists": 0, "season_minutes": 3060}],
+        "joshua wilson-esbrand": [{"position": "D S", "minutes": 900, "goals": 0,
+                                   "assists": 1, "season_minutes": 3060}],
+    }
+
+
+def test_match_understat_accepts_exact_name():
+    assert bd._match_understat("Bradley Barcola", "Left Winger", _us_index())[0]["goals"] == 14
+
+
+def test_match_understat_rejects_fuzzy_match_with_wrong_position():
+    """Regression: 'Antonio Silva' (centre-back) fuzzy-matched goalkeeper
+    'Antonio Sivera', filing a keeper's stats under a defender."""
+    assert bd._match_understat("António Silva", "Centre-Back", _us_index()) is None
+
+
+def test_match_understat_accepts_spelling_variant_when_position_agrees():
+    match = bd._match_understat("Josh Wilson-Esbrand", "Left-Back", _us_index())
+    assert match is not None and match[0]["assists"] == 1
+
+
+def test_match_understat_returns_none_when_absent():
+    assert bd._match_understat("Nobody At All", "Centre-Forward", _us_index()) is None
+
+
+def test_nonpl_columns_flag_and_aggregate():
+    player = {"name": "Bradley Barcola", "position": "Left Winger"}
+    cols = bd._nonpl_columns(player, _us_index())
+    assert cols["has_nonpl_record"] == 1
+    assert cols["nonpl_minutes"] == 2223
+
+    missing = bd._nonpl_columns({"name": "Nobody", "position": "Goalkeeper"}, _us_index())
+    assert missing["has_nonpl_record"] == 0
+    assert missing["nonpl_minutes"] == 0
