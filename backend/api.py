@@ -23,9 +23,17 @@ from fastapi.staticfiles import StaticFiles
 from sklearn.model_selection import KFold
 
 from backend import confidence
-from backend.config import CALIBRATION_PATH, PROCESSED_DATASET_PATH, PROJECT_ROOT
+from backend.config import (
+    CALIBRATION_PATH,
+    PROCESSED_DATASET_PATH,
+    PROJECT_ROOT,
+    SEASONS,
+)
 from backend.features import add_derived_features, split_features_target
 from backend.model import build_pipeline, cross_validate_model, fit_pipeline
+from backend.sources import fpl_archive_client as archive
+from backend.sources import understat_client as understat
+from backend.sources.names import normalize_name
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +66,75 @@ def get_state() -> dict:
     calibration = (
         json.loads(CALIBRATION_PATH.read_text()) if CALIBRATION_PATH.exists() else None
     )
+
+    # Season-by-season history reads from the same on-disk caches the build used,
+    # so this is a file read rather than a fetch. Missing caches are not fatal:
+    # the timeline simply comes back empty.
+    try:
+        timelines = {
+            "pl": archive.build_index(SEASONS),
+            "other": understat.build_index(seasons=SEASONS),
+        }
+    except Exception:
+        logger.warning("Season history unavailable; timelines will be empty", exc_info=True)
+        timelines = {"pl": {"by_code": {}, "by_name": {}}, "other": {}}
+
     logger.info("API ready: %d players", len(df))
-    return {"df": df, "calibration": calibration, "metrics": cross_validate_model(df)}
+    return {
+        "df": df,
+        "calibration": calibration,
+        "metrics": cross_validate_model(df),
+        "timelines": timelines,
+    }
 
 
-def _player_payload(row: pd.Series, calibration: dict | None) -> dict:
+def _timeline(row: pd.Series, timelines: dict) -> list[dict]:
+    """One row per season the player actually played, newest last."""
+    code = None if pd.isna(row.get("fpl_code")) else int(row.fpl_code)
+    pl = archive.lookup(
+        timelines["pl"], code, row["name"], understat.transfermarkt_position_group(row.position)
+    )
+    seasons = [
+        {
+            "season": r["season"],
+            "competition": "Premier League",
+            "minutes": r["minutes"],
+            "goals": r["goals"],
+            "assists": r["assists"],
+        }
+        for r in (pl or [])
+    ]
+
+    if not seasons:
+        for r in timelines["other"].get(normalize_name(row["name"]), []):
+            seasons.append(
+                {
+                    "season": r["season"],
+                    "competition": r["league"],
+                    "minutes": r["minutes"],
+                    "goals": r["goals"],
+                    "assists": r["assists"],
+                }
+            )
+
+    return sorted(seasons, key=lambda s: s["season"])
+
+
+def _peers(row: pd.Series, df: pd.DataFrame) -> dict:
+    """Where this player sits among others in the same position."""
+    group = df[df.position == row.position]
+    return {
+        "position": row.position,
+        "count": int(len(group)),
+        "medianValueEur": float(group.market_value_eur.median()),
+        # Share of same-position players worth less than this one.
+        "valuePercentile": round(float((group.market_value_eur < row.market_value_eur).mean()), 3),
+    }
+
+
+def _player_payload(
+    row: pd.Series, calibration: dict | None, df: pd.DataFrame, timelines: dict
+) -> dict:
     predicted = float(row.predicted_eur)
     low = high = None
     if calibration is not None:
@@ -91,6 +163,8 @@ def _player_payload(row: pd.Series, calibration: dict | None) -> dict:
             if calibration is None
             else confidence.describe(row.tier, calibration, CONFIDENCE_LEVEL),
         },
+        "seasons": _timeline(row, timelines),
+        "peers": _peers(row, df),
         "evidence": {
             "thisSeason": {
                 "minutes": int(row.fpl_minutes),
@@ -145,7 +219,7 @@ def get_player(player_id: int) -> dict:
     df = state["df"]
     if player_id not in df.index:
         raise HTTPException(status_code=404, detail="No player with that id")
-    return _player_payload(df.loc[player_id], state["calibration"])
+    return _player_payload(df.loc[player_id], state["calibration"], df, state["timelines"])
 
 
 @app.get("/api/rankings")
@@ -197,6 +271,9 @@ def meta() -> dict:
     return {
         "players": int(len(df)),
         "clubs": int(df.club.nunique()),
+        "clubList": sorted(df.club.unique().tolist()),
+        "positionList": sorted(df.position.unique().tolist()),
+        "seasons": SEASONS,
         "seasonGameweeks": int(df.fpl_gameweeks.iloc[0]),
         "confidenceLevel": CONFIDENCE_LEVEL,
         "calibrated": calibration is not None,

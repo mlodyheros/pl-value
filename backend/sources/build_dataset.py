@@ -127,9 +127,22 @@ def _nonpl_columns(player: dict, index: dict) -> dict:
 
 def _fpl_columns(player: dict | None, gameweeks: int) -> dict:
     if player is None:
-        return {**_EMPTY_FPL, "fpl_id": None, "fpl_gameweeks": gameweeks, "has_fpl_record": 0}
+        return {
+            **_EMPTY_FPL,
+            "fpl_id": None,
+            "fpl_code": None,
+            "fpl_gameweeks": gameweeks,
+            "has_fpl_record": 0,
+        }
     values = {key: player[key] for key in _EMPTY_FPL}
-    return {**values, "fpl_id": player.get("fpl_id"), "fpl_gameweeks": gameweeks, "has_fpl_record": 1}
+    return {
+        **values,
+        "fpl_id": player.get("fpl_id"),
+        # stable across seasons; joins to the season archive exactly
+        "fpl_code": player.get("fpl_code"),
+        "fpl_gameweeks": gameweeks,
+        "has_fpl_record": 1,
+    }
 
 
 def _history_columns(name: str, position: str, player: dict | None, index: dict) -> dict:
