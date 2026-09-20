@@ -64,10 +64,9 @@ def test_predict_manual_history_changes_prediction(monkeypatch, capsys):
         has_any_history=1,
         career_minutes_share=lambda d: d.goals / 20,
         career_gi_per90=lambda d: d.goals / 20,
-        hist_minutes_share=lambda d: d.goals / 20,
+        recent_minutes_share=lambda d: d.goals / 20,
         has_fpl_record=1,
         minutes_share=lambda d: d.goals / 20,
-        starts_share=lambda d: d.goals / 20,
     )
     pipeline, _ = train(df)
     monkeypatch.setattr(predict, "load_pipeline", lambda: pipeline)
@@ -88,7 +87,7 @@ def test_predict_manual_playing_time_changes_prediction(monkeypatch, capsys):
         predict.predict_manual(24, "Centre-Forward", "A FC", **kwargs)
         return _predicted_euros(capsys.readouterr().out)
 
-    assert run(minutes_share=1.0, starts_share=1.0) > run(minutes_share=0.05, starts_share=0.0)
+    assert run(minutes_share=1.0) > run(minutes_share=0.05)
 
 
 def test_validate_categories_rejects_unknown_club_and_lists_known():
@@ -150,3 +149,20 @@ def test_predict_player_prints_a_range(monkeypatch, tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert "Confidence:" in out and "80% range:" in out
+
+
+def test_manual_prediction_with_a_career_record_is_not_called_unknown(monkeypatch, capsys):
+    """Reporting "no playing record" back at someone who just supplied one
+    contradicts their own input."""
+    from backend import confidence
+
+    df = _df().assign(has_hist_record=1, has_any_history=1, career_minutes_share=0.8)
+    pipeline, _ = train(df)
+    monkeypatch.setattr(predict, "load_pipeline", lambda: pipeline)
+    monkeypatch.setattr(predict, "load_calibration", lambda: confidence.calibrate(df, n_splits=3))
+
+    predict.predict_manual(24, "Centre-Forward", "A FC", career_minutes_share=0.85)
+    out = capsys.readouterr().out
+
+    assert "no recent playing record" not in out
+    assert "Premier League history" in out

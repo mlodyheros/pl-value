@@ -107,11 +107,10 @@ def predict_manual(
     position,
     club,
     minutes_share=None,
-    starts_share=None,
     career_minutes_share=None,
     career_gi_per90=None,
 ) -> None:
-    """``minutes_share``/``starts_share`` (0-1) are this season's playing time;
+    """``minutes_share`` (0-1) is this season's playing time;
     ``career_minutes_share`` (0-1) and ``career_gi_per90`` describe recent completed
     seasons in any covered league. Omit any you don't know."""
     pipeline = load_pipeline()
@@ -123,10 +122,12 @@ def predict_manual(
                     "age": age,
                     "position": position,
                     "club": club,
-                    "has_fpl_record": int(minutes_share is not None or starts_share is not None),
+                    "has_fpl_record": int(minutes_share is not None),
                     "minutes_share": minutes_share or 0.0,
-                    "starts_share": starts_share or 0.0,
-                    "has_hist_record": 0,
+                    # Supplying a career record is a claim that one exists, so
+                    # the confidence tier should reflect it rather than reporting
+                    # "no playing record" back at the person who just gave one.
+                    "has_hist_record": int(career_minutes_share is not None),
                     "has_any_history": int(career_minutes_share is not None),
                     "career_minutes_share": career_minutes_share or 0.0,
                     "career_gi_per90": career_gi_per90 or 0.0,
@@ -150,9 +151,6 @@ def main() -> None:
         "--minutes-share", type=float, help="share of this season's minutes played (0-1)"
     )
     parser.add_argument(
-        "--starts-share", type=float, help="starts per gameweek this season (0-1)"
-    )
-    parser.add_argument(
         "--career-minutes-share",
         type=float,
         help="share of minutes played across recent completed seasons (0-1)",
@@ -170,7 +168,6 @@ def main() -> None:
             args.position,
             args.club,
             args.minutes_share,
-            args.starts_share,
             args.career_minutes_share,
             args.career_gi_per90,
         )

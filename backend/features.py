@@ -11,7 +11,6 @@ NUMERIC_FEATURES = [
     "age_squared",
     "has_fpl_record",
     "minutes_share",
-    "starts_share",
     "has_hist_record",
     "has_any_history",
     "career_minutes_share",
@@ -28,10 +27,20 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
 
     - ``age_squared``: value peaks in the mid-20s and falls off on both sides,
       which a straight line in age can't express (worth ~+0.1 CV R^2).
-    - ``minutes_share`` / ``starts_share``: this season's FPL minutes as a
-      fraction of those available, and starts per finished gameweek, so
-      regulars stand out and the features stay comparable as the season goes
-      on. Default to 0 when there is no FPL data (or before gameweek 1).
+    - ``minutes_share``: this season's FPL minutes as a fraction of those
+      available, so regulars stand out and the feature stays comparable as the
+      season goes on. Defaults to 0 when there is no FPL data (or before
+      gameweek 1). ``starts_share`` is still computed for exploration but is
+      not a model feature: it correlates 0.98 with minutes_share, which split
+      one effect across two coefficients and left starts with a negative sign
+      it does not deserve. Dropping it changed nothing measurable (MAE EUR7.35m
+      either way) and made the rest readable.
+
+    ``has_any_history`` carries a negative coefficient, which looks wrong and
+    is not. Given the career shares, it separates a player with no record
+    anywhere - whose zeros mean "unknown" - from one whose record exists and
+    says they barely played. Removing it costs real accuracy (MAE EUR7.35m ->
+    EUR7.58m), so the sign is doing a job.
     - ``career_minutes_share`` / ``career_gi_per90``: how much the player has
       played, and scored/assisted per 90, in recent completed seasons. Taken
       from their Premier League history when they have one, and otherwise from
