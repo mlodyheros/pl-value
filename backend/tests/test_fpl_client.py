@@ -2,7 +2,7 @@ import json
 import os
 import time
 
-from src.data import fpl_client
+from backend.sources import fpl_client
 
 
 def _payload():
@@ -235,3 +235,8 @@ def test_get_player_history_gives_up_after_max_attempts(monkeypatch, tmp_path):
     assert len(calls) == fpl_client._MAX_ATTEMPTS
     # A failed fetch must not poison the cache with an empty history.
     assert not (tmp_path / "element_summary" / "7.json").exists()
+
+
+def test_team_names_lists_the_seasons_clubs():
+    assert fpl_client.team_names(_payload()) == ["Man City"]
+    assert fpl_client.team_names({}) == []

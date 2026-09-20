@@ -1,6 +1,6 @@
 import pytest
 
-from src.data import transfermarkt_scraper as tm
+from backend.sources import transfermarkt_scraper as tm
 
 
 @pytest.mark.parametrize(
@@ -18,6 +18,13 @@ from src.data import transfermarkt_scraper as tm
 )
 def test_parse_market_value(text, expected):
     assert tm.parse_market_value(text) == expected
+
+
+def test_search_query_candidates_expand_ambiguous_fpl_names():
+    # Bare FPL short names resolve to lookalike clubs, so they are aliased first.
+    assert tm._search_query_candidates("Spurs")[0] == "Tottenham Hotspur"
+    assert tm._search_query_candidates("Bournemouth")[0] == "AFC Bournemouth"
+    assert tm._search_query_candidates("Nott'm Forest")[0] == "Nottingham Forest"
 
 
 def test_search_query_candidates_strip_suffix_and_fall_back():
@@ -91,7 +98,10 @@ SQUAD_HTML = f"""
 
 
 def test_fetch_squad_parses_rows(monkeypatch):
-    monkeypatch.setattr(tm, "resolve_club_id", lambda name: {"slug": "manchester-city", "id": "281"})
+    monkeypatch.setattr(
+        tm, "resolve_club_id",
+        lambda name: {"name": "Manchester City FC", "slug": "manchester-city", "id": "281"},
+    )
     monkeypatch.setattr(tm, "_get_html", lambda *a, **k: SQUAD_HTML)
 
     players = tm.fetch_squad("Manchester City FC")
@@ -114,6 +124,31 @@ def test_fetch_squad_parses_rows(monkeypatch):
             "market_value_eur": None,
         },
     ]
+
+
+def test_fetch_squad_labels_players_with_transfermarkt_club_name(monkeypatch):
+    monkeypatch.setattr(
+        tm, "resolve_club_id",
+        lambda name: {"name": "Man City", "slug": "manchester-city", "id": "281"},
+    )
+    monkeypatch.setattr(tm, "_get_html", lambda *a, **k: SQUAD_HTML)
+
+    assert {p["club"] for p in tm.fetch_squad("Man City")} == {"Man City"}
+
+
+def test_fetch_squad_rejects_implausibly_cheap_squad(monkeypatch):
+    """A lookalike club resolves and parses fine; only the value gives it away."""
+    import pytest
+
+    cheap = SQUAD_HTML.replace("€220.00m", "€50k")
+    monkeypatch.setattr(
+        tm, "resolve_club_id",
+        lambda name: {"name": "Bournemouth", "slug": "bournemouth", "id": "83929"},
+    )
+    monkeypatch.setattr(tm, "_get_html", lambda *a, **k: cheap)
+
+    with pytest.raises(RuntimeError, match="wrong club"):
+        tm.fetch_squad("Bournemouth")
 
 
 def test_fetch_squad_unresolved_club_returns_empty(monkeypatch):

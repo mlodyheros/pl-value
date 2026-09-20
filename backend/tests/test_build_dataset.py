@@ -1,6 +1,7 @@
 import pandas as pd
+import pytest
 
-from src.data import build_dataset as bd
+from backend.sources import build_dataset as bd
 
 
 def test_normalize_name_strips_accents_case_and_whitespace():
@@ -8,47 +9,24 @@ def test_normalize_name_strips_accents_case_and_whitespace():
     assert bd.normalize_name("Mateo Kovačić") == "mateo kovacic"
 
 
-def test_aggregate_performance_stats_sums_across_seasons(monkeypatch):
-    seasons = {
-        2023: [
-            {"player": {"name": "Erling Haaland"}, "goals": 27, "assists": 6, "penalties": 7, "playedMatches": 32},
-            {"player": {"name": "Jérémy Doku"}, "goals": None, "assists": 3, "playedMatches": 20},
-        ],
-        2024: [
-            {"player": {"name": "Erling Haaland"}, "goals": 22, "assists": 3, "penalties": 4, "playedMatches": 31},
-            {"player": {"name": "Jeremy Doku"}, "goals": 2, "assists": 1, "playedMatches": 10},
-        ],
-    }
-    monkeypatch.setattr(bd.fd, "get_scorers", lambda season: seasons[season])
+def test_build_dataset_uses_fpl_club_list(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(bd.fpl_client, "get_bootstrap_static",
+                        lambda refresh=False: {"events": [], "teams": [{"name": "Spurs"}, {"name": "Man City"}]})
+    monkeypatch.setattr(bd.fpl_client, "parse_players", lambda data: [])
+    monkeypatch.setattr(bd.tm, "fetch_league_squads", lambda clubs: seen.extend(clubs) or [])
+    monkeypatch.setattr(bd, "PROCESSED_DATASET_PATH", tmp_path / "players.csv")
 
-    stats = bd._aggregate_performance_stats([2023, 2024])
-
-    assert stats["erling haaland"] == {"goals": 49, "assists": 9, "penalties": 11, "appearances": 63}
-    # Accented and unaccented spellings across seasons merge into one player.
-    assert stats["jeremy doku"] == {"goals": 2, "assists": 4, "penalties": 0, "appearances": 30}
+    with pytest.raises(KeyError):  # empty squad list -> no columns to drop on
+        bd.build_dataset()
+    assert seen == ["Spurs", "Man City"]
 
 
-def test_match_stats_exact_accent_fuzzy_and_miss():
-    stats = {
-        "jeremy doku": {"goals": 1, "assists": 2, "penalties": 0, "appearances": 3},
-        "yeremi pino": {"goals": 9, "assists": 9, "penalties": 0, "appearances": 9},
-    }
+def test_build_dataset_errors_without_clubs(monkeypatch):
+    monkeypatch.setattr(bd.fpl_client, "get_bootstrap_static", lambda refresh=False: {"teams": []})
 
-    assert bd._match_stats("Jérémy Doku", stats) == (stats["jeremy doku"], True)
-    assert bd._match_stats("Yéremy Pino", stats) == (stats["yeremi pino"], True)
-
-    # Too dissimilar to be the same player: stays unmatched rather than mis-joined.
-    assert bd._match_stats("Jaden Philogene", {"jaden philogene-bidace": {}})[1] is False
-
-    empty, matched = bd._match_stats("David Raya", stats)
-    assert matched is False
-    assert empty == {"goals": 0, "assists": 0, "penalties": 0, "appearances": 0}
-
-
-def test_match_stats_miss_returns_a_fresh_dict():
-    first, _ = bd._match_stats("Nobody", {})
-    first["goals"] = 99
-    assert bd._match_stats("Nobody", {})[0]["goals"] == 0
+    with pytest.raises(RuntimeError, match="No PL clubs"):
+        bd.build_dataset()
 
 
 def _fpl(first, second, web, minutes=0):
@@ -97,7 +75,6 @@ def test_index_fpl_players_skips_ambiguous_web_names():
 
 
 def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
-    monkeypatch.setattr(bd.fd, "get_teams", lambda season: [{"name": "Manchester City FC"}])
     monkeypatch.setattr(
         bd.tm,
         "fetch_league_squads",
@@ -110,12 +87,7 @@ def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
              "club": "Manchester City FC", "market_value_eur": None},
         ],
     )
-    monkeypatch.setattr(
-        bd.fd,
-        "get_scorers",
-        lambda season: [{"player": {"name": "Erling Haaland"}, "goals": 10, "assists": 2, "penalties": 1, "playedMatches": 12}],
-    )
-    monkeypatch.setattr(bd.fpl_client, "get_bootstrap_static", lambda refresh=False: {"events": [{"finished": True}] * 4})
+    monkeypatch.setattr(bd.fpl_client, "get_bootstrap_static", lambda refresh=False: {"events": [{"finished": True}] * 4, "teams": [{"name": "Man City"}]})
     monkeypatch.setattr(
         bd.fpl_client,
         "parse_players",
@@ -138,8 +110,6 @@ def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
 
     # Players without a market value are dropped.
     assert list(df["name"]) == ["Erling Haaland", "Ederson"]
-    assert list(df["goals"]) == [10, 0]
-    assert list(df["has_scorer_record"]) == [1, 0]
     assert list(df["has_fpl_record"]) == [1, 0]
     assert list(df["fpl_minutes"]) == [360, 0]
     assert list(df["fpl_gameweeks"]) == [4, 4]

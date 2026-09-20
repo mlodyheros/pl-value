@@ -1,5 +1,7 @@
 """Builds the processed PL player dataset: current squads + market values
-(Transfermarkt) joined with recent-seasons performance stats (football-data.org).
+(Transfermarkt) joined with playing history (Fantasy Premier League API).
+
+The club list comes from FPL too, so the pipeline needs no API key.
 """
 
 from __future__ import annotations
@@ -11,15 +13,13 @@ from collections import Counter
 
 import pandas as pd
 
-from src.config import CURRENT_SEASON, PROCESSED_DATASET_PATH, SEASONS
-from src.data import football_data_client as fd
-from src.data import fpl_client
-from src.data import transfermarkt_scraper as tm
-from src.data.names import normalize_name
+from backend.config import PROCESSED_DATASET_PATH, SEASONS
+from backend.sources import fpl_client
+from backend.sources import transfermarkt_scraper as tm
+from backend.sources.names import normalize_name
 
 logger = logging.getLogger(__name__)
 
-_EMPTY_STATS = {"goals": 0, "assists": 0, "penalties": 0, "appearances": 0}
 _EMPTY_FPL = {
     "fpl_minutes": 0,
     "fpl_starts": 0,
@@ -38,33 +38,6 @@ _EMPTY_HIST = {
     "hist_seasons": 0,
 }
 _FPL_FUZZY_CUTOFF = 0.88
-
-
-def _aggregate_performance_stats(seasons: list[int]) -> dict[str, dict]:
-    """Sum goals/assists/penalties/appearances per player name across seasons."""
-    stats: dict[str, dict] = {}
-    for season in seasons:
-        scorers = fd.get_scorers(season)
-        logger.info("Season %s: %d scorer records", season, len(scorers))
-        for entry in scorers:
-            name = normalize_name(entry["player"]["name"])
-            row = stats.setdefault(name, dict(_EMPTY_STATS))
-            row["goals"] += entry.get("goals") or 0
-            row["assists"] += entry.get("assists") or 0
-            row["penalties"] += entry.get("penalties") or 0
-            row["appearances"] += entry.get("playedMatches") or 0
-    return stats
-
-
-def _match_stats(name: str, stats: dict[str, dict]) -> tuple[dict, bool]:
-    """Look up a player's stats by (normalized) name, falling back to fuzzy match."""
-    name = normalize_name(name)
-    if name in stats:
-        return stats[name], True
-    close = difflib.get_close_matches(name, stats.keys(), n=1, cutoff=0.85)
-    if close:
-        return stats[close[0]], True
-    return dict(_EMPTY_STATS), False
 
 
 def _index_fpl_players(players: list[dict]) -> tuple[dict, dict]:
@@ -121,58 +94,43 @@ def _history_columns(player: dict | None) -> dict:
 
 
 def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
-    teams = fd.get_teams(CURRENT_SEASON)
-    club_names = [team["name"] for team in teams]
+    fpl_data = fpl_client.get_bootstrap_static(refresh=refresh_fpl)
+    club_names = fpl_client.team_names(fpl_data)
     if not club_names:
-        raise RuntimeError(
-            "No PL clubs returned by football-data.org - check FOOTBALL_DATA_API_KEY and CURRENT_SEASON"
-        )
-    logger.info("Found %d PL clubs for season %s", len(club_names), CURRENT_SEASON)
+        raise RuntimeError("No PL clubs returned by the FPL API")
+    gameweeks = fpl_client.finished_gameweeks(fpl_data)
+    logger.info("Found %d PL clubs; %d finished gameweeks", len(club_names), gameweeks)
 
     squads = tm.fetch_league_squads(club_names)
     logger.info("Scraped %d players total from Transfermarkt", len(squads))
 
-    stats = _aggregate_performance_stats(SEASONS)
-
-    fpl_data = fpl_client.get_bootstrap_static(refresh=refresh_fpl)
-    gameweeks = fpl_client.finished_gameweeks(fpl_data)
     fpl_by_full, fpl_by_web = _index_fpl_players(fpl_client.parse_players(fpl_data))
-    logger.info("FPL: %d finished gameweeks", gameweeks)
 
     rows = []
-    unmatched = []
     fpl_unmatched = []
     for player in squads:
-        player_stats, matched = _match_stats(player["name"], stats)
-        if not matched:
-            unmatched.append(player["name"])
         fpl_player = _match_fpl(player["name"], fpl_by_full, fpl_by_web)
         if fpl_player is None:
             fpl_unmatched.append(player["name"])
         rows.append(
             {
                 **player,
-                **player_stats,
-                "has_scorer_record": int(matched),
                 **_fpl_columns(fpl_player, gameweeks),
                 **_history_columns(fpl_player),
             }
         )
         if len(rows) % 100 == 0:
-            logger.info("Processed %d/%d players (FPL history is fetched once, then cached)", len(rows), len(squads))
+            logger.info(
+                "Processed %d/%d players (FPL history is fetched once, then cached)",
+                len(rows),
+                len(squads),
+            )
 
     if fpl_unmatched:
         logger.info(
             "%d players had no FPL record (FPL stats default to 0), e.g. %s",
             len(fpl_unmatched),
             fpl_unmatched[:10],
-        )
-
-    if unmatched:
-        logger.info(
-            "%d players had no recent scorer record (stats defaulted to 0), e.g. %s",
-            len(unmatched),
-            unmatched[:10],
         )
 
     df = pd.DataFrame(rows)

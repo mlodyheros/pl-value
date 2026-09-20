@@ -21,7 +21,7 @@ import time
 
 import requests
 
-from src.config import (
+from backend.config import (
     FPL_BASE_URL,
     FPL_CACHE_MAX_AGE_HOURS,
     FPL_HISTORY_CACHE_MAX_AGE_DAYS,
@@ -64,6 +64,11 @@ def get_bootstrap_static(refresh: bool = False) -> dict:
     FPL_RAW_DIR.mkdir(parents=True, exist_ok=True)
     _CACHE_FILE.write_text(json.dumps(data))
     return data
+
+
+def team_names(data: dict) -> list[str]:
+    """The season's PL clubs, as FPL names them (e.g. 'Spurs', 'Man City')."""
+    return [team["name"] for team in data.get("teams", [])]
 
 
 def finished_gameweeks(data: dict) -> int:

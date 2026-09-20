@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from src import predict
-from src.model import train
+from backend import predict
+from backend.model import train
 
 
 def _df(n=60, seed=1):
@@ -27,7 +27,7 @@ def test_predict_for_row_matches_pipeline_on_dataframe():
     pipeline, _ = train(df)
 
     row = df.iloc[0]
-    from src.features import prepare_features
+    from backend.features import prepare_features
 
     expected = float(np.expm1(pipeline.predict(prepare_features(df.iloc[[0]]))[0]))
     assert predict.predict_for_row(pipeline, row) == expected
@@ -37,7 +37,7 @@ def test_predict_manual_prints_prediction(monkeypatch, capsys):
     pipeline, _ = train(_df())
     monkeypatch.setattr(predict, "load_pipeline", lambda: pipeline)
 
-    predict.predict_manual(24, "Centre-Forward", "A FC", 20, 8, 2, 34)
+    predict.predict_manual(24, "Centre-Forward", "A FC", minutes_share=0.9)
 
     assert capsys.readouterr().out.startswith("Predicted value: €")
 
@@ -64,7 +64,7 @@ def test_predict_manual_history_changes_prediction(monkeypatch, capsys):
     monkeypatch.setattr(predict, "load_pipeline", lambda: pipeline)
 
     def euros(**kwargs):
-        predict.predict_manual(24, "Centre-Forward", "A FC", 5, 2, 0, 20, **kwargs)
+        predict.predict_manual(24, "Centre-Forward", "A FC", **kwargs)
         return float(capsys.readouterr().out.split("€")[1].replace(",", ""))
 
     assert euros(hist_minutes_share=0.95) > euros(hist_minutes_share=0.05)
@@ -76,7 +76,7 @@ def test_predict_manual_playing_time_changes_prediction(monkeypatch, capsys):
     monkeypatch.setattr(predict, "load_pipeline", lambda: pipeline)
 
     def run(**kwargs):
-        predict.predict_manual(24, "Centre-Forward", "A FC", 5, 2, 0, 20, **kwargs)
+        predict.predict_manual(24, "Centre-Forward", "A FC", **kwargs)
         return capsys.readouterr().out
 
     starter = run(minutes_share=1.0, starts_share=1.0)
@@ -86,3 +86,27 @@ def test_predict_manual_playing_time_changes_prediction(monkeypatch, capsys):
         return float(out.split("€")[1].replace(",", ""))
 
     assert euros(starter) > euros(benched)
+
+
+def test_validate_categories_rejects_unknown_club_and_lists_known():
+    import pytest
+
+    pipeline, _ = train(_df())
+
+    assert predict.known_categories(pipeline)["club"] == ["A FC", "B FC"]
+    predict.validate_categories(pipeline, club="A FC")  # known: no error
+
+    with pytest.raises(SystemExit) as excinfo:
+        predict.validate_categories(pipeline, club="Manchester City FC")
+    assert "Unknown club" in str(excinfo.value)
+    assert "A FC" in str(excinfo.value)
+
+
+def test_predict_manual_errors_on_unknown_club_instead_of_guessing(monkeypatch):
+    import pytest
+
+    pipeline, _ = train(_df())
+    monkeypatch.setattr(predict, "load_pipeline", lambda: pipeline)
+
+    with pytest.raises(SystemExit):
+        predict.predict_manual(24, "Centre-Forward", "Nowhere FC")

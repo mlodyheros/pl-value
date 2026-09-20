@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from src.features import prepare_features
-from src.model import build_pipeline, cross_validate_model, train, value_weights
+from backend.features import prepare_features
+from backend.model import build_pipeline, cross_validate_model, train, value_weights
 
 
 def _synthetic_df(n: int = 40, seed: int = 0) -> pd.DataFrame:

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.features import (
+from backend.features import (
     FEATURE_COLUMNS,
     add_derived_features,
     prepare_features,
@@ -42,22 +42,12 @@ def test_train_test_split_dataset_shapes():
     assert len(y_train) + len(y_test) == len(df)
 
 
-def test_add_derived_features_computes_age_squared_and_flag_without_mutating_input():
+def test_add_derived_features_computes_age_squared_without_mutating_input():
     df = _sample_df()
     out = add_derived_features(df)
 
     assert "age_squared" not in df.columns
     assert list(out["age_squared"]) == [400, 625, 900, 484]
-    # The goalkeeper (0 goals/assists, 5 appearances) still has a record via appearances.
-    assert list(out["has_scorer_record"]) == [1, 1, 1, 1]
-
-    no_stats = df.assign(goals=0, assists=0, appearances=0)
-    assert list(add_derived_features(no_stats)["has_scorer_record"]) == [0, 0, 0, 0]
-
-
-def test_add_derived_features_keeps_existing_scorer_flag():
-    df = _sample_df().assign(has_scorer_record=[0, 1, 0, 1])
-    assert list(add_derived_features(df)["has_scorer_record"]) == [0, 1, 0, 1]
 
 
 def test_prepare_features_returns_training_columns_in_order():
@@ -116,3 +106,24 @@ def test_add_derived_features_keeps_supplied_hist_share():
     out = add_derived_features(_sample_df().assign(hist_minutes_share=0.7, has_hist_record=1))
 
     assert (out["hist_minutes_share"] == 0.7).all()
+
+
+def test_add_derived_features_hist_gi_per90_is_a_rate_not_a_total():
+    df = _sample_df().assign(
+        hist_minutes=[3420, 1710, 0, 900],
+        hist_goals=[38, 19, 5, 0],
+        hist_assists=[0, 0, 0, 0],
+        hist_seasons=[1, 1, 0, 1],
+    )
+    out = add_derived_features(df)
+
+    # Same rate (1 per 90) despite very different totals - that is the point.
+    assert out["hist_gi_per90"].iloc[0] == 1.0
+    assert out["hist_gi_per90"].iloc[1] == 1.0
+    # No minutes: a rate would be undefined, so it must not divide by zero.
+    assert out["hist_gi_per90"].iloc[2] == 5 * 90
+    assert out["hist_gi_per90"].iloc[3] == 0.0
+
+
+def test_add_derived_features_defaults_gi_per90_without_history():
+    assert (add_derived_features(_sample_df())["hist_gi_per90"] == 0).all()

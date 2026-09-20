@@ -19,7 +19,7 @@ import time
 import requests
 from bs4 import BeautifulSoup
 
-from src.config import (
+from backend.config import (
     TRANSFERMARKT_BASE_URL,
     TRANSFERMARKT_CLUB_ID_CACHE,
     TRANSFERMARKT_DELAY_SECONDS,
@@ -30,6 +30,23 @@ from src.config import (
 logger = logging.getLogger(__name__)
 
 _last_request_time: float | None = None
+
+# FPL uses short club names; these are too ambiguous for Transfermarkt's search,
+# which returns an unrelated lookalike club for them (verified by hand).
+SEARCH_ALIASES = {
+    "Spurs": "Tottenham Hotspur",
+    "Leeds": "Leeds United",
+    "Brighton": "Brighton & Hove Albion",
+    "Bournemouth": "AFC Bournemouth",
+    "Newcastle": "Newcastle United",
+    "Man Utd": "Manchester United",
+    "Man City": "Manchester City",
+    "Nott'm Forest": "Nottingham Forest",
+}
+
+# A real PL squad is worth far more than this; anything less means the search
+# resolved to a lookalike club rather than the Premier League one.
+MIN_PLAUSIBLE_SQUAD_VALUE_EUR = 50_000_000
 
 
 def _throttle() -> None:
@@ -80,7 +97,7 @@ def _search_query_candidates(club_name: str) -> list[str]:
     club out of the results entirely, and "&" breaks matching too. So we
     fall back progressively rather than trusting the first query.
     """
-    stripped = _strip_club_suffix(club_name)
+    stripped = _strip_club_suffix(SEARCH_ALIASES.get(club_name, club_name))
     queries = [stripped]
     if "&" in stripped:
         queries.append(stripped.replace("&", "and"))
@@ -162,7 +179,7 @@ def resolve_club_id(club_name: str) -> dict | None:
 
     best = _pick_best_candidate(club_name, candidates)
 
-    entry = {"slug": best[1], "id": best[2]}
+    entry = {"name": best[0], "slug": best[1], "id": best[2]}
     cache[club_name] = entry
     _save_club_id_cache(cache)
     return entry
@@ -187,10 +204,15 @@ def parse_market_value(text: str) -> float | None:
 
 
 def fetch_squad(club_name: str) -> list[dict]:
-    """Current squad for one club: name, position, age, nationality, market value."""
+    """Current squad for one club: name, position, age, nationality, market value.
+
+    ``club`` on each player is Transfermarkt's own name for the club, so the
+    dataset isn't tied to whatever short name the squad list came from.
+    """
     club = resolve_club_id(club_name)
     if club is None:
         return []
+    label = club.get("name") or club_name
 
     html = _get_html(
         f"{TRANSFERMARKT_BASE_URL}/{club['slug']}/kader/verein/{club['id']}",
@@ -229,11 +251,18 @@ def fetch_squad(club_name: str) -> list[dict]:
                 "position": position,
                 "age": age,
                 "nationality": nationality,
-                "club": club_name,
+                "club": label,
                 "market_value_eur": market_value,
             }
         )
 
+    total_value = sum(p["market_value_eur"] or 0 for p in players)
+    if total_value < MIN_PLAUSIBLE_SQUAD_VALUE_EUR:
+        raise RuntimeError(
+            f"{club_name!r} resolved to Transfermarkt club {club['id']} ({label!r}) "
+            f"whose squad is worth only EUR{total_value:,.0f} - that is almost certainly "
+            f"the wrong club. Add an entry to SEARCH_ALIASES."
+        )
     return players
 
 

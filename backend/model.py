@@ -14,8 +14,8 @@ from sklearn.model_selection import KFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from src.config import MODEL_PATH, PROCESSED_DATASET_PATH
-from src.features import (
+from backend.config import MODEL_PATH, PROCESSED_DATASET_PATH
+from backend.features import (
     CATEGORICAL_FEATURES,
     NUMERIC_FEATURES,
     split_features_target,
@@ -118,7 +118,7 @@ def main() -> None:
     logger.info("5-fold CV top-10%% MAE: €%.0f", cv_metrics["cv_top_decile_mae_eur"])
     logger.info("5-fold CV top-10%% predicted/actual: %.2f", cv_metrics["cv_top_decile_ratio"])
 
-    from src.evaluate import plot_predictions
+    from backend.evaluate import plot_predictions
 
     plot_predictions(pipeline, df)
 

@@ -10,12 +10,32 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from src.config import MODEL_PATH, PROCESSED_DATASET_PATH
-from src.features import prepare_features
+from backend.config import MODEL_PATH, PROCESSED_DATASET_PATH
+from backend.features import CATEGORICAL_FEATURES, prepare_features
 
 
 def load_pipeline():
     return joblib.load(MODEL_PATH)
+
+
+def known_categories(pipeline) -> dict[str, list[str]]:
+    """The club/position values the pipeline was actually trained on."""
+    encoder = pipeline.named_steps["preprocess"].named_transformers_["categorical"]
+    return dict(zip(CATEGORICAL_FEATURES, [list(c) for c in encoder.categories_]))
+
+
+def validate_categories(pipeline, **values: str) -> None:
+    """Fail loudly on an unseen club/position.
+
+    The encoder is configured with ``handle_unknown="ignore"``, which silently
+    encodes an unknown value as all-zeros and returns a confident-looking but
+    meaningless number - worse than an error.
+    """
+    known = known_categories(pipeline)
+    for column, value in values.items():
+        if value is not None and value not in known[column]:
+            options = ", ".join(known[column])
+            raise SystemExit(f"Unknown {column} {value!r}.\nKnown values: {options}")
 
 
 def predict_for_row(pipeline, row: pd.Series) -> float:
@@ -38,10 +58,6 @@ def predict_player(name: str) -> None:
         actual = row["market_value_eur"]
         diff_pct = (predicted - actual) / actual * 100
         print(f"\n{row['name']} ({row['club']}, {row['position']}, age {row['age']})")
-        print(
-            f"  Stats: {row['goals']}G {row['assists']}A, "
-            f"{row['appearances']} appearances (recent seasons)"
-        )
         if row.get("has_fpl_record") == 1:
             print(f"  This season (FPL): {row['fpl_minutes']:.0f} minutes, {row['fpl_starts']:.0f} starts")
         if row.get("has_hist_record") == 1:
@@ -57,10 +73,6 @@ def predict_manual(
     age,
     position,
     club,
-    goals,
-    assists,
-    penalties,
-    appearances,
     minutes_share=None,
     starts_share=None,
     hist_minutes_share=None,
@@ -68,15 +80,12 @@ def predict_manual(
     """``minutes_share``/``starts_share`` (0-1) are this season's FPL playing time,
     ``hist_minutes_share`` (0-1) the share played across past PL seasons. Omit if unknown."""
     pipeline = load_pipeline()
+    validate_categories(pipeline, position=position, club=club)
     row = prepare_features(
         pd.DataFrame(
             [
                 {
                     "age": age,
-                    "goals": goals,
-                    "assists": assists,
-                    "penalties": penalties,
-                    "appearances": appearances,
                     "position": position,
                     "club": club,
                     "has_fpl_record": int(minutes_share is not None or starts_share is not None),
@@ -97,11 +106,7 @@ def main() -> None:
     parser.add_argument("--player", help="Look up a player already in the dataset by name")
     parser.add_argument("--age", type=int)
     parser.add_argument("--position", help='e.g. "Centre-Forward"')
-    parser.add_argument("--club", help='e.g. "Manchester City FC"')
-    parser.add_argument("--goals", type=int, default=0)
-    parser.add_argument("--assists", type=int, default=0)
-    parser.add_argument("--penalties", type=int, default=0)
-    parser.add_argument("--appearances", type=int, default=0)
+    parser.add_argument("--club", help='e.g. "Manchester City"')
     parser.add_argument(
         "--minutes-share", type=float, help="share of this season's minutes played (0-1)"
     )
@@ -122,10 +127,6 @@ def main() -> None:
             args.age,
             args.position,
             args.club,
-            args.goals,
-            args.assists,
-            args.penalties,
-            args.appearances,
             args.minutes_share,
             args.starts_share,
             args.hist_minutes_share,

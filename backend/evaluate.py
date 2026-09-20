@@ -10,8 +10,8 @@ import numpy as np
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
-from src.config import FIGURES_DIR
-from src.features import split_features_target, train_test_split_dataset
+from backend.config import FIGURES_DIR
+from backend.features import split_features_target, train_test_split_dataset
 
 
 def plot_predictions(pipeline: Pipeline, df: pd.DataFrame) -> None:
