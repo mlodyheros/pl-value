@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PL Value — what a player is worth, and how sure we are</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="mark" href="/" aria-label="PL Value, home">
+    <span class="mark__pl">PL</span><span class="mark__value">VALUE</span>
+  </a>
+
+  <search class="finder">
+    <label class="visually-hidden" for="q">Search a player</label>
+    <input id="q" type="search" placeholder="Search a player" autocomplete="off"
+           role="combobox" aria-expanded="false" aria-controls="suggestions" aria-autocomplete="list">
+    <ul id="suggestions" class="suggestions" role="listbox" aria-label="Matching players" hidden></ul>
+  </search>
+
+  <p class="masthead__stat" id="masthead-stat"></p>
+</header>
+
+<main id="main">
+
+  <section class="board" id="board" aria-labelledby="board-title">
+    <div class="lede">
+      <h1 id="board-title">The model disagrees most<br>about these players.</h1>
+      <p class="lede__body">
+        It values a player from how much they play, what they score, their age,
+        position and club — then sets that against the market. Search anyone above,
+        or start with the widest gaps.
+      </p>
+    </div>
+
+    <div class="tables">
+      <section class="table" aria-labelledby="under-title">
+        <h2 class="table__title" id="under-title">
+          <span class="dot dot--under" aria-hidden="true"></span>Worth more than the market says
+        </h2>
+        <ol class="ranks" id="underrated"></ol>
+      </section>
+
+      <section class="table" aria-labelledby="over-title">
+        <h2 class="table__title" id="over-title">
+          <span class="dot dot--over" aria-hidden="true"></span>Worth less than the market says
+        </h2>
+        <ol class="ranks" id="overrated"></ol>
+      </section>
+    </div>
+    <p class="tables__note" id="tables-note"></p>
+  </section>
+
+  <article class="player" id="player" hidden aria-live="polite"></article>
+
+</main>
+
+<footer class="colophon">
+  <p id="colophon-model"></p>
+  <p>
+    Market values scraped from Transfermarkt. Playing record from the Fantasy
+    Premier League API, its season archive, and Understat. Estimates are the
+    model's own, not advice.
+  </p>
+</footer>
+
+<script src="/assets/app.js"></script>
+</body>
+</html>
