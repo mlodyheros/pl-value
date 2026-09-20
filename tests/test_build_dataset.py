@@ -119,8 +119,18 @@ def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
     monkeypatch.setattr(
         bd.fpl_client,
         "parse_players",
-        lambda data: [{**_fpl("Erling", "Haaland", "Haaland", minutes=360), "fpl_starts": 4, "fpl_xg": 3.3}],
+        lambda data: [
+            {**_fpl("Erling", "Haaland", "Haaland", minutes=360), "fpl_id": 411, "fpl_starts": 4, "fpl_xg": 3.3}
+        ],
     )
+    history_calls = []
+
+    def fake_history(fpl_id):
+        history_calls.append(fpl_id)
+        return [{"season_name": "2025/26", "minutes": 2953, "starts": 34, "goals_scored": 27,
+                 "assists": 7, "expected_goals": "25.50", "expected_assists": "2.67"}]
+
+    monkeypatch.setattr(bd.fpl_client, "get_player_history", fake_history)
     monkeypatch.setattr(bd, "SEASONS", [2025])
     monkeypatch.setattr(bd, "PROCESSED_DATASET_PATH", tmp_path / "out" / "players.csv")
 
@@ -133,4 +143,12 @@ def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
     assert list(df["has_fpl_record"]) == [1, 0]
     assert list(df["fpl_minutes"]) == [360, 0]
     assert list(df["fpl_gameweeks"]) == [4, 4]
+    assert df.loc[0, "fpl_id"] == 411
+    # Past-season history is joined for matched players only (no request for Ederson).
+    assert history_calls == [411]
+    assert list(df["has_hist_record"]) == [1, 0]
+    assert list(df["hist_minutes"]) == [2953, 0]
+    assert list(df["hist_goals"]) == [27, 0]
+    assert df.loc[0, "hist_xg"] == 25.5
+    assert list(df["hist_seasons"]) == [1, 0]
     assert pd.read_csv(tmp_path / "out" / "players.csv").shape[0] == 2

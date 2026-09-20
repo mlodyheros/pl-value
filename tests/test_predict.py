@@ -52,6 +52,24 @@ def test_predict_player_reports_no_match(monkeypatch, tmp_path, capsys):
     assert "No player found" in capsys.readouterr().out
 
 
+def test_predict_manual_history_changes_prediction(monkeypatch, capsys):
+    df = _df().assign(
+        has_hist_record=1,
+        hist_minutes_share=lambda d: d.goals / 20,
+        has_fpl_record=1,
+        minutes_share=lambda d: d.goals / 20,
+        starts_share=lambda d: d.goals / 20,
+    )
+    pipeline, _ = train(df)
+    monkeypatch.setattr(predict, "load_pipeline", lambda: pipeline)
+
+    def euros(**kwargs):
+        predict.predict_manual(24, "Centre-Forward", "A FC", 5, 2, 0, 20, **kwargs)
+        return float(capsys.readouterr().out.split("€")[1].replace(",", ""))
+
+    assert euros(hist_minutes_share=0.95) > euros(hist_minutes_share=0.05)
+
+
 def test_predict_manual_playing_time_changes_prediction(monkeypatch, capsys):
     df = _df().assign(has_fpl_record=1, minutes_share=lambda d: d.goals / 20, starts_share=lambda d: d.goals / 20)
     pipeline, _ = train(df)

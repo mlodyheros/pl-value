@@ -6,17 +6,19 @@ stats, and lets you compare the model's estimate against their actual value.
 - **Performance stats** (goals, assists, penalties, appearances) come from the
   [football-data.org](https://www.football-data.org/) API, aggregated over
   several recent completed seasons.
-- **Playing time** (minutes, starts) for the current season comes from the
-  official [Fantasy Premier League API](https://fantasy.premierleague.com/api/bootstrap-static/)
-  (free, no key). It also carries xG/xA and defensive stats, which are stored
-  in the dataset but not yet used by the model.
+- **Playing time** comes from the official
+  [Fantasy Premier League API](https://fantasy.premierleague.com/api/bootstrap-static/)
+  (free, no key): this season's minutes and starts, plus each player's past PL
+  seasons (minutes, starts, goals, assists, xG/xA) from the per-player
+  endpoint. Unlike football-data.org this covers defenders and keepers too.
 - **Market values** (the prediction target), plus each player's age, position
   and nationality, are scraped from Transfermarkt's current squad pages.
 - A scikit-learn **linear regression** pipeline (on log-transformed value,
   since transfer values are heavily right-skewed) is trained on the merged
   dataset. Features: age (and age², since value peaks mid-20s), goals,
-  assists, penalties, appearances, this season's minutes/starts share, flags for
-  whether each stats source had a record for the player, position and club.
+  assists, penalties, appearances, this season's minutes/starts share, the share
+  of minutes played in past PL seasons, flags for whether each stats source had
+  a record for the player, position and club.
 
 ## Setup
 
@@ -39,6 +41,7 @@ FOOTBALL_DATA_API_KEY=your_key_here
 #    Takes a few minutes on a cold cache; raw responses are cached under
 #    data/raw/ so re-runs are near-instant. The FPL response is season-to-date,
 #    so its cache expires after 24h; add --refresh-fpl to force a refetch.
+#    Per-player FPL history is one request each (~10 min cold, then cached 30d).
 python -m src.data.build_dataset
 
 # 2. Train the model. Prints held-out and 5-fold CV R²/MAE/RMSE and writes
@@ -50,7 +53,8 @@ python -m src.predict --player "Erling Haaland"
 
 # ...or predict for a hypothetical player by hand
 python -m src.predict --age 24 --position "Centre-Forward" --club "Manchester City FC" \
-    --goals 20 --assists 8 --appearances 34 --minutes-share 0.9 --starts-share 1
+    --goals 20 --assists 8 --appearances 34 --minutes-share 0.9 --starts-share 1 \
+    --hist-minutes-share 0.8
 ```
 
 `notebooks/01_model_exploration.ipynb` walks through the data, the model and
@@ -58,29 +62,39 @@ the experiment log behind the modelling choices (run the dataset build first).
 
 ## Current performance
 
-5-fold cross-validated on ~540 players: **R² ≈ 0.58** (on log value), **MAE ≈ €9.3m**.
+5-fold cross-validated on ~540 players: **R² ≈ 0.65** (on log value), **MAE ≈ €8.1m**.
 Trust the CV numbers over the single 80/20 split, which swings by ~0.1 R² between
 seeds at this dataset size.
 
 What moved the needle (details and numbers in the notebook):
 
-- `age²` (value peaks mid-20s): the largest single gain.
-- FPL minutes/starts share: R² 0.51 → 0.58, MAE €9.8m → €9.3m.
-- Training weights ∝ √value: plain log-value regression optimises *relative*
-  error, so cheap players outvote the stars. Weighting lowers euro MAE overall
-  (€9.9m → €9.3m) and for the top 10% (€29m → €25m), at some cost in log-R²
-  (0.62 → 0.58).
+| Features | R² (log) | MAE | top-10% MAE |
+|---|---|---|---|
+| raw stats only | 0.36 | €11.5m | €27.2m |
+| + age² (value peaks mid-20s) | 0.50 | €10.0m | €26.8m |
+| + this season's playing time (FPL) | 0.58 | €9.3m | €25.2m |
+| + past seasons' minutes (FPL history) | **0.65** | **€8.3m** | **€19.5m** |
 
-The model still under-predicts the very top (top-10% predicted/actual ≈ 0.85;
-Haaland comes out well under his €220m): stats alone don't capture star premium.
+Past-season minutes is the single biggest addition: it covers defenders and keepers that
+football-data.org's scorers endpoint misses, and it's a settled signal rather than a few
+gameweeks of noise.
 
-Tried and rejected: random forest / gradient boosting (with matched weights the
-linear model has the lowest euro error; boosting only ties on log-R² unweighted
-and is more conservative on stars), position×stat interactions, power target
-transforms, boosting on residuals, Duan smearing (removes the bias but raises MAE
-to €11.6m), FPL xG/xA/defensive stats (noise after only a few gameweeks; worth
-re-testing later in the season) and FPL price (worse euro error, and it's FPL's
-own valuation rather than performance).
+Training weights players by √value. Plain log-value regression optimises *relative* error,
+so cheap players outvote the stars; weighting lowers euro MAE overall (€9.0m → €8.3m) and
+for the top 10% (€21.8m → €19.5m), at some cost in log-R² (0.68 → 0.65).
+
+The model still under-predicts the very top (top-10% predicted/actual ≈ 0.88): stats alone
+don't capture star premium. It also under-predicts players with no PL history (new signings
+from abroad, academy players) - about a quarter of the squad, flagged by `has_hist_record`.
+
+Tried and rejected: random forest / gradient boosting (with matched weights the linear model
+has the lowest euro error), past-season starts / xG / goals (redundant once the model knows
+minutes played), this season's xG/xA and defensive stats (still noise after 4 gameweeks; worth
+re-testing later in the season), position×stat interactions, power target transforms, boosting
+on residuals, Duan smearing, and FPL price (better log-R², much worse euro error).
+
+Worth knowing: dropping the football-data.org stats entirely scores within noise of the
+current model, so that API key is now carrying very little weight.
 
 ## Known limitations
 
@@ -106,11 +120,13 @@ own valuation rather than performance).
   fuzzy). ~96% of players are found in FPL; the rest (mostly loanees and
   departed players) get no playing-time data, which makes the model
   under-predict them. The `has_fpl_record` flag lets you spot them.
-- **FPL is current-season only**, and only a few gameweeks old at the time of
-  writing, so `minutes_share` is a noisy early-season signal. Shares are
-  normalised by gameweeks played so the feature stays comparable over time, but
-  retrain as the season progresses. Before gameweek 1 there is no playing-time
-  signal at all.
+- **This season's FPL data is only a few gameweeks old** at the time of writing,
+  so `minutes_share` is a noisy early-season signal (the past-season history
+  carries most of the weight). Shares are normalised by gameweeks played so the
+  feature stays comparable over time, but retrain as the season progresses.
+- **No PL history for new arrivals**: the FPL history only covers seasons a
+  player spent in the Premier League, so signings from abroad and academy
+  players have none and get under-predicted. `has_hist_record` flags them.
 - **Transfermarkt scraping**: this scrapes public pages politely (delays
   between requests, cached responses) for personal/educational use. It is
   against Transfermarkt's terms of service for heavier or commercial use.
@@ -126,7 +142,7 @@ src/
   predict.py                      CLI to compare prediction vs actual
   data/
     football_data_client.py       football-data.org API wrapper (cached, rate-limited)
-    fpl_client.py                 Fantasy Premier League API (cached, refetched after 24h)
+    fpl_client.py                 FPL API: current season + per-player history (cached)
     names.py                      name normalisation shared by the joins
     transfermarkt_scraper.py      Transfermarkt squad/value scraper (cached, rate-limited)
     build_dataset.py              orchestrates the three sources into one CSV

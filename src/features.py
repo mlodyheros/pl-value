@@ -17,6 +17,8 @@ NUMERIC_FEATURES = [
     "has_fpl_record",
     "minutes_share",
     "starts_share",
+    "has_hist_record",
+    "hist_minutes_share",
 ]
 CATEGORICAL_FEATURES = ["position", "club"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -48,6 +50,15 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         out["starts_share"] = out["fpl_starts"] / gameweeks if has_fpl_columns else 0.0
     if "has_fpl_record" not in out:
         out["has_fpl_record"] = 0
+
+    if "hist_minutes_share" not in out:
+        if "hist_minutes" in out and "hist_seasons" in out:
+            # 38 matches x 90 minutes is a full season on the pitch.
+            out["hist_minutes_share"] = out["hist_minutes"] / (out["hist_seasons"].clip(lower=1) * 3420)
+        else:
+            out["hist_minutes_share"] = 0.0
+    if "has_hist_record" not in out:
+        out["has_hist_record"] = 0
     return out
 
 

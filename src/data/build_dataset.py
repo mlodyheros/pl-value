@@ -28,6 +28,15 @@ _EMPTY_FPL = {
     "fpl_defensive_contribution": 0,
     "fpl_price": 0.0,
 }
+_EMPTY_HIST = {
+    "hist_minutes": 0,
+    "hist_starts": 0,
+    "hist_goals": 0,
+    "hist_assists": 0,
+    "hist_xg": 0.0,
+    "hist_xa": 0.0,
+    "hist_seasons": 0,
+}
 _FPL_FUZZY_CUTOFF = 0.88
 
 
@@ -96,9 +105,19 @@ def _match_fpl(name: str, by_full: dict, by_web: dict) -> dict | None:
 
 def _fpl_columns(player: dict | None, gameweeks: int) -> dict:
     if player is None:
-        return {**_EMPTY_FPL, "fpl_gameweeks": gameweeks, "has_fpl_record": 0}
+        return {**_EMPTY_FPL, "fpl_id": None, "fpl_gameweeks": gameweeks, "has_fpl_record": 0}
     values = {key: player[key] for key in _EMPTY_FPL}
-    return {**values, "fpl_gameweeks": gameweeks, "has_fpl_record": 1}
+    return {**values, "fpl_id": player.get("fpl_id"), "fpl_gameweeks": gameweeks, "has_fpl_record": 1}
+
+
+def _history_columns(player: dict | None) -> dict:
+    """Past-season FPL stats over ``SEASONS`` for a matched FPL player."""
+    history = _EMPTY_HIST
+    if player is not None and player.get("fpl_id") is not None:
+        history = fpl_client.aggregate_history(
+            fpl_client.get_player_history(player["fpl_id"]), SEASONS
+        )
+    return {**history, "has_hist_record": int(history["hist_seasons"] > 0)}
 
 
 def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
@@ -136,8 +155,11 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
                 **player_stats,
                 "has_scorer_record": int(matched),
                 **_fpl_columns(fpl_player, gameweeks),
+                **_history_columns(fpl_player),
             }
         )
+        if len(rows) % 100 == 0:
+            logger.info("Processed %d/%d players (FPL history is fetched once, then cached)", len(rows), len(squads))
 
     if fpl_unmatched:
         logger.info(

@@ -13,6 +13,9 @@ FOOTBALL_DATA_BASE_URL = "https://api.football-data.org/v4"
 FPL_BASE_URL = "https://fantasy.premierleague.com/api"
 # FPL numbers are season-to-date, so a cached copy goes stale after a gameweek
 FPL_CACHE_MAX_AGE_HOURS = 24
+# Past-season history is immutable until a new season completes
+FPL_HISTORY_CACHE_MAX_AGE_DAYS = 30
+FPL_HISTORY_DELAY_SECONDS = 0.3
 
 TRANSFERMARKT_BASE_URL = "https://www.transfermarkt.com"
 TRANSFERMARKT_HEADERS = {

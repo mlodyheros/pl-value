@@ -91,3 +91,28 @@ def test_add_derived_features_keeps_supplied_shares():
 
     assert (out["minutes_share"] == 0.8).all()
     assert (out["starts_share"] == 0.5).all()
+
+
+def test_add_derived_features_hist_minutes_share():
+    df = _sample_df().assign(
+        hist_minutes=[3420, 6840, 0, 1710],
+        hist_seasons=[1, 2, 0, 1],  # 0 seasons must not divide by zero
+        has_hist_record=[1, 1, 0, 1],
+    )
+    out = add_derived_features(df)
+
+    assert list(out["hist_minutes_share"]) == [1.0, 1.0, 0.0, 0.5]
+    assert list(out["has_hist_record"]) == [1, 1, 0, 1]
+
+
+def test_add_derived_features_defaults_without_history():
+    out = add_derived_features(_sample_df())
+
+    assert (out["hist_minutes_share"] == 0).all()
+    assert (out["has_hist_record"] == 0).all()
+
+
+def test_add_derived_features_keeps_supplied_hist_share():
+    out = add_derived_features(_sample_df().assign(hist_minutes_share=0.7, has_hist_record=1))
+
+    assert (out["hist_minutes_share"] == 0.7).all()

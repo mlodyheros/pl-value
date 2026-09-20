@@ -44,6 +44,11 @@ def predict_player(name: str) -> None:
         )
         if row.get("has_fpl_record") == 1:
             print(f"  This season (FPL): {row['fpl_minutes']:.0f} minutes, {row['fpl_starts']:.0f} starts")
+        if row.get("has_hist_record") == 1:
+            print(
+                f"  Past {row['hist_seasons']:.0f} PL season(s): {row['hist_minutes']:.0f} minutes, "
+                f"{row['hist_goals']:.0f}G {row['hist_assists']:.0f}A"
+            )
         print(f"  Actual value:    €{actual:,.0f}")
         print(f"  Predicted value: €{predicted:,.0f}  ({diff_pct:+.1f}% vs actual)")
 
@@ -58,9 +63,10 @@ def predict_manual(
     appearances,
     minutes_share=None,
     starts_share=None,
+    hist_minutes_share=None,
 ) -> None:
-    """``minutes_share``/``starts_share`` (0-1) are this season's FPL playing time;
-    omit both if unknown."""
+    """``minutes_share``/``starts_share`` (0-1) are this season's FPL playing time,
+    ``hist_minutes_share`` (0-1) the share played across past PL seasons. Omit if unknown."""
     pipeline = load_pipeline()
     row = prepare_features(
         pd.DataFrame(
@@ -76,6 +82,8 @@ def predict_manual(
                     "has_fpl_record": int(minutes_share is not None or starts_share is not None),
                     "minutes_share": minutes_share or 0.0,
                     "starts_share": starts_share or 0.0,
+                    "has_hist_record": int(hist_minutes_share is not None),
+                    "hist_minutes_share": hist_minutes_share or 0.0,
                 }
             ]
         )
@@ -100,6 +108,11 @@ def main() -> None:
     parser.add_argument(
         "--starts-share", type=float, help="starts per gameweek this season (0-1)"
     )
+    parser.add_argument(
+        "--hist-minutes-share",
+        type=float,
+        help="share of minutes played across past PL seasons (0-1)",
+    )
     args = parser.parse_args()
 
     if args.player:
@@ -115,6 +128,7 @@ def main() -> None:
             args.appearances,
             args.minutes_share,
             args.starts_share,
+            args.hist_minutes_share,
         )
     else:
         parser.error("Provide --player NAME, or --age/--position/--club for a manual prediction")
