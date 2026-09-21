@@ -236,12 +236,36 @@ Two deliberate choices:
 Calibration is written to `models/confidence_calibration.json` by
 `python -m backend.model`.
 
+## What is left, and why
+
+The interface audit that produced most of this section is worked through. Three
+items were closed by measurement rather than by code, and they are the honest
+edges of the project:
+
+- **Players with nothing on record.** 35 of 540 have no playing history *and* no
+  transfer fee. Their median error is 49% against 27% for everyone else. Transfer
+  fees cut this group from 61 players and 56% error, but what remains is scouting
+  reputation — the market prices Bouaddi at €80m and Mouzakitis at €25m on
+  potential that no source we can reach measures.
+- **Shrinkage toward the middle** was corrected three ways (linear recalibration,
+  isotonic, Duan smearing) and every one made euro error worse. It is the price of
+  lower error with noisy features, so the interface explains it instead.
+- **Historical valuations do not help.** ~9,800 valuations exist for these players
+  over twenty years. Trained on all of it and tested on 2026: MAE €9.48m. Trained
+  on 2025 alone: €8.92m. Old valuations teach the wrong relationship. Volume does
+  help at constant recency (540 random rows give €10.98m), so it is the age of the
+  data that hurts, not the amount.
+
 ## Known limitations
 
 - **Market value is always "current"**: Transfermarkt doesn't expose reliable
   historical values through the pages this project scrapes (its season filters
   affect squad membership, not the value shown), so the model predicts *today's*
   value from *recent* performance, not a value at a specific past date.
+- **Non-PL season length is approximated**: minutes available in a foreign league
+  come from the longest season any player in it played, rather than the fixture
+  list, because league lengths differ (34 vs 38 matches) and this needs no
+  hard-coding per competition.
 - **Transfer fees are an optional extra**: they come from a one-off Kaggle
   download rather than an API, so a fresh clone of this repo will not have them.
   The pipeline runs without it — every player is marked "fee unknown" and the
