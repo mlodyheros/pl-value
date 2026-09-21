@@ -82,7 +82,8 @@ seeds at this dataset size.
 | + non-PL record as a **fallback** | 0.67 | €8.0m | €19.2m |
 | + PL history from the season archive | 0.69 | €7.9m | €19.1m |
 | + the newest season on its own | 0.70 | €7.4m | €16.7m |
-| + **what the club actually paid** | **0.72** | **€7.0m** | **€15.8m** |
+| + what the club actually paid | 0.72 | €7.0m | €15.8m |
+| + **"not playing" read properly** | **0.75** | **€6.7m** | **€14.9m** |
 
 Four findings worth keeping in mind:
 
@@ -101,6 +102,15 @@ Four findings worth keeping in mind:
   (R² 0.673 -> 0.655, MAE €8.25m -> €8.51m). Form from six years ago says little
   about today's value, and it doesn't reach the players who are missing history
   anyway - they're new, not old. `SEASONS` stays at four.
+- **A month out of the side is not evidence.** Several well-known players came
+  out badly under-valued — Alisson at €5.7m against a market €15m, Grealish at
+  €9.7m against €20m. It looked like an age problem and was not: players aged
+  31+ are *over*-predicted at the median (ratio 1.24). The cause was that
+  missing the first four gameweeks was being read as a strong signal. Two
+  product terms — "not playing" times career share, and times fee — tell the
+  model to lean on history instead. A linear model cannot form a product of its
+  own features, so it had to be built. Worth €0.24m of MAE over 100 paired
+  folds, 7.5 standard errors.
 - **Minutes describe a player; a fee prices them.** Every feature above describes
   what happened on the pitch, which left the model blind to an expensive signing
   who has barely played — it asked €28m for Geovany Quenda against a market €42m.
@@ -162,6 +172,12 @@ inside the numbers the model learns from rather than something it has to correct
 
 The model still under-predicts the very top (top-10% predicted/actual ≈ 0.91) and
 players with no PL history - about a quarter of the squad, flagged by `has_hist_record`.
+
+Rejected as leakage, not as a weak feature: Transfermarkt's *peak* market value
+(in the same Kaggle download) would cut MAE to €5.6m, but 39% of players have a
+peak exactly equal to their current value — for four in ten the "feature" is the
+answer. The same goes for that file's `market_value_in_eur`, which correlates
+0.98 with the target.
 
 Tried and rejected: random forest / gradient boosting (with matched weights the linear
 model has the lowest euro error), past-season starts and xG/xA per 90 (nothing on top of
