@@ -81,9 +81,10 @@ seeds at this dataset size.
 | + past-season goals+assists **per 90** | 0.65 | €8.2m | €19.3m |
 | + non-PL record as a **fallback** | 0.67 | €8.0m | €19.2m |
 | + PL history from the season archive | 0.69 | €7.9m | €19.1m |
-| + **the newest season on its own** | **0.70** | **€7.4m** | **€16.7m** |
+| + the newest season on its own | 0.70 | €7.4m | €16.7m |
+| + **what the club actually paid** | **0.72** | **€7.0m** | **€15.8m** |
 
-Three findings worth keeping in mind:
+Four findings worth keeping in mind:
 
 - **Playing time beats output.** How much a player plays, for which club, at what
   age explains most of the value. Past-season minutes was the single biggest gain.
@@ -100,6 +101,12 @@ Three findings worth keeping in mind:
   (R² 0.673 -> 0.655, MAE €8.25m -> €8.51m). Form from six years ago says little
   about today's value, and it doesn't reach the players who are missing history
   anyway - they're new, not old. `SEASONS` stays at four.
+- **Minutes describe a player; a fee prices them.** Every feature above describes
+  what happened on the pitch, which left the model blind to an expensive signing
+  who has barely played — it asked €28m for Geovany Quenda against a market €42m.
+  Adding the last fee paid was the largest single gain since playing history.
+  A fee is not the target leaking: it is a real transaction agreed *before* the
+  valuation being predicted.
 - **Fallbacks beat extra columns.** Adding the non-PL record as its own feature
   made things *worse* (top-decile MAE €18.7m -> €20.8m): it is zero for most of
   the squad, so it mostly added noise. Folding it into the same feature as the PL
@@ -219,6 +226,10 @@ Calibration is written to `models/confidence_calibration.json` by
   historical values through the pages this project scrapes (its season filters
   affect squad membership, not the value shown), so the model predicts *today's*
   value from *recent* performance, not a value at a specific past date.
+- **Transfer fees are an optional extra**: they come from a one-off Kaggle
+  download rather than an API, so a fresh clone of this repo will not have them.
+  The pipeline runs without it — every player is marked "fee unknown" and the
+  model falls back on playing history. See `backend/sources/transfer_fees.py`.
 - **Partial coverage for new arrivals**: Understat fills in players arriving from
   the big five leagues, but not Portugal, the Championship, the Eredivisie or
   anywhere else - so 61 players (~11%, €771m of market value) still have no record
@@ -261,6 +272,7 @@ backend/
     fpl_client.py                 FPL API: clubs and this season's stats
     fpl_archive_client.py         past PL seasons, one CSV per season (cached)
     understat_client.py           Understat league data for non-PL seasons (cached)
+    transfer_fees.py              fees paid, from an optional Kaggle download
     transfermarkt_scraper.py      squad/value scraper (cached, rate-limited)
     names.py                      name normalisation shared by the joins
     build_dataset.py              joins the sources into one CSV

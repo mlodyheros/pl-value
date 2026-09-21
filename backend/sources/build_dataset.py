@@ -16,6 +16,7 @@ import pandas as pd
 from backend.config import PROCESSED_DATASET_PATH, SEASONS
 from backend.sources import fpl_archive_client as archive
 from backend.sources import fpl_client
+from backend.sources import transfer_fees
 from backend.sources import transfermarkt_scraper as tm
 from backend.sources import understat_client as us
 from backend.sources.names import normalize_name
@@ -171,6 +172,18 @@ def _recent_columns(records: list[dict] | None, season_minutes: int) -> dict:
     return {"recent_minutes": 0, "recent_available_minutes": season_minutes}
 
 
+def _fee_columns(player: dict, index: dict) -> dict:
+    """The most recent fee paid for this player, when we have that file."""
+    match = transfer_fees.lookup(index, player["name"], player.get("age"))
+    if match is None:
+        return {"transfer_fee_eur": None, "transfer_fee_date": None, "has_transfer_fee": 0}
+    return {
+        "transfer_fee_eur": match["fee_eur"],
+        "transfer_fee_date": match["fee_date"],
+        "has_transfer_fee": 1,
+    }
+
+
 def _history_columns(name: str, position: str, player: dict | None, index: dict) -> dict:
     """Past PL seasons over ``SEASONS``.
 
@@ -207,6 +220,7 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
     fpl_by_full, fpl_by_web = _index_fpl_players(fpl_client.parse_players(fpl_data))
     pl_history = archive.build_index(SEASONS)
     understat = us.build_index(seasons=SEASONS)
+    fees = transfer_fees.build_index()
     logger.info("Understat: indexed %d players outside the PL", len(understat))
 
     rows = []
@@ -221,6 +235,7 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
                 **_fpl_columns(fpl_player, gameweeks),
                 **_history_columns(player["name"], player.get("position", ""), fpl_player, pl_history),
                 **_nonpl_columns(player, understat),
+                **_fee_columns(player, fees),
             }
         )
     if fpl_unmatched:

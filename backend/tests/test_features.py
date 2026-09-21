@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import pandas as pd
 
 from backend.features import (
@@ -191,3 +192,20 @@ def test_recent_minutes_share_falls_back_to_the_non_pl_season():
 
 def test_recent_minutes_share_defaults_without_season_columns():
     assert (add_derived_features(_sample_df())["recent_minutes_share"] == 0).all()
+
+
+def test_transfer_fee_feature_is_logged_and_flagged():
+    df = _sample_df().assign(transfer_fee_eur=[60_000_000, None, 0, 1_000_000],
+                             has_transfer_fee=[1, 0, 0, 1])
+    out = add_derived_features(df)
+
+    assert out["log_transfer_fee"].iloc[0] == pytest.approx(np.log1p(60_000_000))
+    assert out["log_transfer_fee"].iloc[1] == 0.0  # missing means unknown, not zero-valued
+    assert list(out["has_transfer_fee"]) == [1, 0, 0, 1]
+
+
+def test_transfer_fee_defaults_when_the_optional_source_is_absent():
+    out = add_derived_features(_sample_df())
+
+    assert (out["log_transfer_fee"] == 0).all()
+    assert (out["has_transfer_fee"] == 0).all()
