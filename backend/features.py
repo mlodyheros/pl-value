@@ -18,10 +18,16 @@ NUMERIC_FEATURES = [
     "recent_minutes_share",
     "has_transfer_fee",
     "log_transfer_fee",
+    "idle_this_season",
+    "idle_x_career",
+    "idle_x_fee",
 ]
 CATEGORICAL_FEATURES = ["position", "club"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 TARGET = "market_value_eur"
+
+# One match's worth of minutes. Below this a player has effectively not featured.
+ONE_MATCH_MINUTES = 90
 
 
 def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -74,6 +80,22 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
       the target leaking: it is a real transaction agreed before the valuation
       being predicted. The file behind it is an optional download, so when it
       is missing every player is simply marked "fee unknown".
+    - ``idle_this_season`` and its two products: whether the player has barely
+      featured this season (under one match's worth of minutes), and that flag
+      multiplied by their career share and by their fee.
+
+      These exist because a handful of well-known players were badly
+      under-valued - Alisson at EUR5.7m against a market EUR15m, Grealish at
+      EUR9.7m against EUR20m - and the cause was not age, as it first appeared.
+      It was that a spell out of the side four gameweeks into a season was being
+      read as strong evidence. The products say: when someone is not playing,
+      lean on what they have done before and what they cost. A linear model
+      cannot form a product of its own features, so this had to be built.
+
+      Worth EUR0.24m of MAE over 100 paired folds (7.5 standard errors, better
+      in 81% of them). Shrinking this season's minutes toward the career figure
+      was tried first and does nothing at all: that is a linear blend of two
+      features the model already has, so it can already express it.
     """
     out = df.copy()
     out["age_squared"] = out["age"] ** 2
@@ -143,6 +165,16 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         )
         out["log_transfer_fee"] = np.log1p(fees)
 
+    # Four gameweeks in, not featuring says less about a player than the
+    # feature would otherwise imply; the products below restore the balance.
+    if "idle_this_season" not in out:
+        minutes = (
+            pd.to_numeric(out["fpl_minutes"], errors="coerce").fillna(0)
+            if "fpl_minutes" in out
+            else pd.Series(0.0, index=out.index)
+        )
+        out["idle_this_season"] = (minutes < ONE_MATCH_MINUTES).astype(float)
+
     if "recent_minutes_share" not in out:
         if "recent_minutes" in out:
             pl_recent = out["recent_minutes"] / out["recent_available_minutes"].clip(lower=1)
@@ -154,6 +186,10 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
             out["recent_minutes_share"] = np.where(has_pl, pl_recent, non_pl_recent)
         else:
             out["recent_minutes_share"] = 0.0
+    if "idle_x_career" not in out:
+        out["idle_x_career"] = out["idle_this_season"] * out["career_minutes_share"]
+    if "idle_x_fee" not in out:
+        out["idle_x_fee"] = out["idle_this_season"] * out["log_transfer_fee"]
     return out
 
 

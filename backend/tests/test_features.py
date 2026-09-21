@@ -209,3 +209,37 @@ def test_transfer_fee_defaults_when_the_optional_source_is_absent():
 
     assert (out["log_transfer_fee"] == 0).all()
     assert (out["has_transfer_fee"] == 0).all()
+
+
+def test_idle_flag_marks_players_under_one_match_of_minutes():
+    df = _sample_df().assign(
+        fpl_minutes=[0, 89, 90, 450], fpl_starts=0, fpl_gameweeks=4, has_fpl_record=1
+    )
+    out = add_derived_features(df)
+
+    assert list(out["idle_this_season"]) == [1.0, 1.0, 0.0, 0.0]
+
+
+def test_idle_products_lean_on_history_and_fee_when_not_playing():
+    """A linear model cannot form a product of its own features, so these carry
+    "when someone is not playing, weigh what they did before"."""
+    df = _sample_df().assign(
+        fpl_minutes=[0, 450, 0, 450], fpl_starts=0, fpl_gameweeks=4, has_fpl_record=1,
+        has_hist_record=1, hist_minutes=3420, hist_seasons=1, hist_goals=0, hist_assists=0,
+        recent_minutes=3420, recent_available_minutes=3420,
+        transfer_fee_eur=50_000_000, has_transfer_fee=1,
+    )
+    out = add_derived_features(df)
+
+    # Idle players carry their career share and fee; the others carry zero.
+    assert out["idle_x_career"].iloc[0] == out["career_minutes_share"].iloc[0]
+    assert out["idle_x_career"].iloc[1] == 0.0
+    assert out["idle_x_fee"].iloc[0] == pytest.approx(np.log1p(50_000_000))
+    assert out["idle_x_fee"].iloc[3] == 0.0
+
+
+def test_idle_features_default_without_fpl_columns():
+    out = add_derived_features(_sample_df())
+
+    assert (out["idle_this_season"] == 1.0).all()  # no minutes recorded at all
+    assert (out["idle_x_fee"] == 0).all()          # ...and no fee to lean on
