@@ -168,6 +168,12 @@ def _player_payload(
         # Carried for the reader, not the model: contract length correlates with
         # value but adds nothing once age is known (tested, within noise).
         "contractExpiry": None if pd.isna(row.get("contract_expiry")) else row.contract_expiry,
+        "lastFee": None
+        if pd.isna(row.get("transfer_fee_eur"))
+        else {
+            "eur": float(row.transfer_fee_eur),
+            "date": None if pd.isna(row.get("transfer_fee_date")) else row.transfer_fee_date,
+        },
         "marketValueEur": float(row.market_value_eur),
         "marketValueSource": "Transfermarkt",
         "predictedEur": predicted,

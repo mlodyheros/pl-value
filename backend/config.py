@@ -47,6 +47,8 @@ TRANSFERMARKT_RAW_DIR = RAW_DIR / "transfermarkt"
 FPL_RAW_DIR = RAW_DIR / "fpl"
 UNDERSTAT_RAW_DIR = RAW_DIR / "understat"
 FPL_ARCHIVE_RAW_DIR = RAW_DIR / "fpl_archive"
+# Optional one-off download; see backend/sources/transfer_fees.py
+KAGGLE_RAW_DIR = RAW_DIR / "kaggle"
 TRANSFERMARKT_CLUB_ID_CACHE = TRANSFERMARKT_RAW_DIR / "club_ids.json"
 
 PROCESSED_DATASET_PATH = PROCESSED_DIR / "pl_players.csv"

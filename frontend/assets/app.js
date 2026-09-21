@@ -356,6 +356,13 @@ function evidencePanel(player) {
         : null,
       "No record in the other leagues we cover",
     ],
+    [
+      "Last transfer fee",
+      player.lastFee
+        ? `${money(player.lastFee.eur)}${player.lastFee.date ? ` · ${new Date(player.lastFee.date).getFullYear()}` : ""}`
+        : null,
+      "No fee on record — a free transfer, or one we don’t have",
+    ],
   ];
 
   return `

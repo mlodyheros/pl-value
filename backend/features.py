@@ -16,6 +16,8 @@ NUMERIC_FEATURES = [
     "career_minutes_share",
     "career_gi_per90",
     "recent_minutes_share",
+    "has_transfer_fee",
+    "log_transfer_fee",
 ]
 CATEGORICAL_FEATURES = ["position", "club"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -63,6 +65,15 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
       the strongest answer found so far to the model under-asking for expensive
       players. Career and recent both earn their place: one says who a player
       has been, the other where they stand now.
+    - ``log_transfer_fee`` (with ``has_transfer_fee``): what a club last paid
+      for this player. Every other feature describes what happened on the
+      pitch, which left the model blind to an expensive player who has barely
+      played - it asked EUR28m for Geovany Quenda against a market EUR42m
+      purely because minutes were all it could see. Worth MAE EUR7.35m ->
+      EUR7.01m, and EUR16.3m -> EUR15.5m among the dearest tenth. A fee is not
+      the target leaking: it is a real transaction agreed before the valuation
+      being predicted. The file behind it is an optional download, so when it
+      is missing every player is simply marked "fee unknown".
     """
     out = df.copy()
     out["age_squared"] = out["age"] ** 2
@@ -121,6 +132,16 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         out["career_gi_per90"] = np.where(has_pl, out["hist_gi_per90"], out["nonpl_gi_per90"])
     if "has_any_history" not in out:
         out["has_any_history"] = (has_pl | (out["has_nonpl_record"] == 1)).astype(int)
+
+    if "has_transfer_fee" not in out:
+        out["has_transfer_fee"] = 0
+    if "log_transfer_fee" not in out:
+        fees = (
+            pd.to_numeric(out["transfer_fee_eur"], errors="coerce").fillna(0)
+            if "transfer_fee_eur" in out
+            else 0.0
+        )
+        out["log_transfer_fee"] = np.log1p(fees)
 
     if "recent_minutes_share" not in out:
         if "recent_minutes" in out:
