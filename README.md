@@ -83,7 +83,8 @@ seeds at this dataset size.
 | + PL history from the season archive | 0.69 | €7.9m | €19.1m |
 | + the newest season on its own | 0.70 | €7.4m | €16.7m |
 | + what the club actually paid | 0.72 | €7.0m | €15.8m |
-| + **"not playing" read properly** | **0.75** | **€6.7m** | **€14.9m** |
+| + "not playing" read properly | 0.75 | €6.7m | €14.9m |
+| + **an age curve that bends** | **0.76** | **€6.6m** | **€14.6m** |
 
 Four findings worth keeping in mind:
 
@@ -102,6 +103,15 @@ Four findings worth keeping in mind:
   (R² 0.673 -> 0.655, MAE €8.25m -> €8.51m). Form from six years ago says little
   about today's value, and it doesn't reach the players who are missing history
   anyway - they're new, not old. `SEASONS` stays at four.
+- **A reader spotted what the metrics could not.** Asked to mark where the model
+  was wrong, squad by squad, someone flagged 25 players across four clubs. Their
+  direction matched the model's own error in 24 of them — and the group they said
+  was under-valued averaged 27 years old against 23.6 for the over-valued group.
+  That pointed at the age curve: a plain parabola is symmetric, and the one this
+  data fits peaks at 21, so it asked too much for teenagers and too little for
+  players in their prime. Two hinge terms at 23 and 29 fixed the shape
+  (MAE €6.76m → €6.64m, 6 standard errors). The labels are kept in
+  `backend/tests/fixtures/human_labels.csv` and checked by a test.
 - **A month out of the side is not evidence.** Several well-known players came
   out badly under-valued — Alisson at €5.7m against a market €15m, Grealish at
   €9.7m against €20m. It looked like an age problem and was not: players aged
