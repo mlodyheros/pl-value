@@ -9,6 +9,8 @@ from sklearn.model_selection import train_test_split
 NUMERIC_FEATURES = [
     "age",
     "age_squared",
+    "age_past_23",
+    "age_past_29",
     "has_fpl_record",
     "minutes_share",
     "has_hist_record",
@@ -29,12 +31,23 @@ TARGET = "market_value_eur"
 # One match's worth of minutes. Below this a player has effectively not featured.
 ONE_MATCH_MINUTES = 90
 
+# Knots for the age curve. A plain parabola is forced to be symmetric, and the
+# one this data fits peaks at 21 - too young, so it asks too much for teenagers
+# and too little for players in their late twenties. Letting the curve bend at
+# these two ages fixes the shape without giving it enough freedom to wander.
+AGE_KNOTS = (23, 29)
+
 
 def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     """Add the features computed from raw columns (returns a copy).
 
-    - ``age_squared``: value peaks in the mid-20s and falls off on both sides,
-      which a straight line in age can't express (worth ~+0.1 CV R^2).
+    - ``age_squared`` and ``age_past_23`` / ``age_past_29``: value peaks in the
+      mid-20s and falls off on both sides, which a straight line can't express.
+      A parabola alone is not enough either - being symmetric, the one this data
+      fits peaks at 21, so it asks too much for teenagers (median predicted /
+      actual 1.13 at ages 20-23) and too little for players at their peak. Two
+      hinge terms let the curve bend at 23 and 29 (MAE EUR6.76m -> EUR6.69m,
+      6 standard errors over 100 paired folds; top-decile EUR15.4m -> EUR15.0m).
     - ``minutes_share``: this season's FPL minutes as a fraction of those
       available, so regulars stand out and the feature stays comparable as the
       season goes on. Defaults to 0 when there is no FPL data (or before
@@ -99,6 +112,8 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     out = df.copy()
     out["age_squared"] = out["age"] ** 2
+    for knot in AGE_KNOTS:
+        out[f"age_past_{knot}"] = (out["age"] - knot).clip(lower=0)
 
     has_fpl_columns = {"fpl_minutes", "fpl_starts", "fpl_gameweeks"} <= set(out.columns)
     gameweeks = out["fpl_gameweeks"].clip(lower=1) if has_fpl_columns else None
