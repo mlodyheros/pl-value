@@ -1,4 +1,5 @@
-/* PL Value — talks to the backend over /api, never to the model directly. */
+/* PL Value — talks to the backend over /api, never to the model directly.
+   Drawing lives in charts.js; this file decides what to show and when. */
 
 const el = (id) => document.getElementById(id);
 const nodes = {
@@ -22,6 +23,7 @@ const nodes = {
   compare: el("compare"),
   loading: el("loading"),
   showAll: el("show-all"),
+  themeToggle: el("theme-toggle"),
 };
 
 // Rows rendered before the "show all" button appears. 540 at once is a wall,
@@ -31,23 +33,28 @@ let gridLimit = FIRST_PAGE;
 
 let everyone = [];
 let highlighted = -1;
+// Starting year of the season being played now; set from /api/meta.
+let thisSeason = null;
 
 /* --- formatting -------------------------------------------------------- */
 
 /** Transfer fees are spoken in millions, so write them that way. */
-function money(eur) {
-  if (eur >= 1e6) {
-    const m = eur / 1e6;
-    return `€${m >= 100 ? Math.round(m) : m.toFixed(1).replace(/\.0$/, "")}m`;
-  }
-  if (eur >= 1e3) return `€${Math.round(eur / 1e3)}k`;
-  return `€${Math.round(eur)}`;
-}
+const money = Charts.euro;
+const esc = Charts.esc;
 
 const signed = (pct) => `${pct > 0 ? "+" : "−"}${Math.abs(Math.round(pct))}%`;
 const count = (n, word) => `${n.toLocaleString("en-GB")} ${word}${n === 1 ? "" : "s"}`;
 const sentence = (text) => text.charAt(0).toUpperCase() + text.slice(1).replace(" - ", " — ");
 const seasonLabel = (year) => `${year}/${String(year + 1).slice(-2)}`;
+const minutesLabel = (n) => `${n.toLocaleString("en-GB")}′`;
+const surnameOf = (name) => name.split(" ").slice(-1)[0];
+const directionOf = (gapPct) => (gapPct > 0 ? "more" : "less");
+
+function ordinal(n) {
+  const teen = n % 100 >= 11 && n % 100 <= 13;
+  const suffix = teen ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] ?? "th");
+  return `${n}${suffix}`;
+}
 
 /** "Central Midfield" -> "central midfielder", "Centre-Back" -> "centre-back". */
 function positionSingular(position) {
@@ -62,6 +69,38 @@ async function api(path) {
   if (!response.ok) throw new Error(`${path} returned ${response.status}`);
   return response.json();
 }
+
+/* --- theme ------------------------------------------------------------- */
+
+// The saved choice is applied by an inline script in <head>, before the first
+// paint; this only keeps the button honest and records changes.
+const THEME_KEY = "pl-value-theme";
+const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+const MOON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 14.1A8.5 8.5 0 1 1 9.9 3.5a6.8 6.8 0 0 0 10.6 10.6z"/></svg>`;
+const SUN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></svg>`;
+
+const currentTheme = () =>
+  document.documentElement.dataset.theme ?? (prefersDark.matches ? "dark" : "light");
+
+function paintToggle() {
+  const dark = currentTheme() === "dark";
+  nodes.themeToggle.innerHTML = dark ? SUN : MOON;
+  nodes.themeToggle.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+}
+
+nodes.themeToggle.addEventListener("click", () => {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch {
+    // Storage blocked (private window): the choice lasts until reload.
+  }
+  paintToggle();
+});
+prefersDark.addEventListener("change", paintToggle);
+paintToggle();
 
 /* --- search ------------------------------------------------------------ */
 
@@ -162,38 +201,62 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest(".finder")) closeSuggestions();
 });
 
-/* --- the band ---------------------------------------------------------- */
+/* --- the valuation ----------------------------------------------------- */
 
-function band(player) {
+/** The chart, said in words, for anyone not looking at it. */
+function spokenSummary(player) {
   const { range, marketValueEur: market, predictedEur: model } = player;
-  const top = Math.max(range?.highEur ?? 0, market, model) * 1.08;
-  const pct = (value) => Math.min(100, (value / top) * 100);
-
-  const rangeLayer = range
-    ? `<div class="band__range" style="left:${pct(range.lowEur)}%;right:${100 - pct(range.highEur)}%"></div>`
-    : "";
-
-  const spoken = range
-    ? `Model estimate ${money(model)}. The ${Math.round(player.confidence.level * 100)}% range runs from ${money(range.lowEur)} to ${money(range.highEur)}. The market values this player at ${money(market)}, ${player.marketInRange ? "inside" : "outside"} that range.`
+  const level = Math.round(player.confidence.level * 100);
+  return range
+    ? `Model estimate ${money(model)}. The ${level}% range runs from ${money(range.lowEur)} to ${money(range.highEur)}. ` +
+        `The market values this player at ${money(market)}, ${player.marketInRange ? "inside" : "outside"} that range.`
     : `Model estimate ${money(model)}. The market values this player at ${money(market)}. No calibrated range available.`;
+}
 
+/** The four numbers a reader came for, before any chart asks to be read. */
+function statTiles(player, rank) {
+  const { range, marketValueEur: market, predictedEur: model, peers } = player;
+  const level = Math.round(player.confidence.level * 100);
+  const direction = directionOf(player.gapPct);
   return `
-    <section class="band" role="img" aria-label="${spoken}">
-      <p class="visually-hidden">${spoken}</p>
-      <header class="band__head" aria-hidden="true">
-        <span>What the model allows</span>
-        <span>${range ? `${Math.round(player.confidence.level * 100)}% range` : "range not calibrated"}</span>
+    <div class="kpis">
+      <section class="card kpi">
+        <p class="kpi__label">Model estimate</p>
+        <p class="kpi__value kpi__value--keyed"><span class="key key--dot key--model" aria-hidden="true"></span>${money(model)}</p>
+        <p class="kpi__sub">${range ? `${level}% range ${money(range.lowEur)} – ${money(range.highEur)}` : "Range not calibrated"}</p>
+      </section>
+      <section class="card kpi">
+        <p class="kpi__label">Market value</p>
+        <p class="kpi__value kpi__value--keyed"><span class="key key--dot key--market" aria-hidden="true"></span>${money(market)}</p>
+        <p class="kpi__sub">${esc(player.marketValueSource ?? "Transfermarkt")} valuation</p>
+      </section>
+      <section class="card kpi">
+        <p class="kpi__label">Model vs market</p>
+        <p class="kpi__value">${signed(player.gapPct)}</p>
+        <p class="kpi__sub kpi__dir"><span class="key key--${direction}" aria-hidden="true"></span>Model asks ${direction}</p>
+      </section>
+      <section class="card kpi">
+        <p class="kpi__label">Among ${esc(positionPlural(peers.position))}</p>
+        <p class="kpi__value">${ordinal(rank)} <span class="kpi__of">of ${peers.count}</span></p>
+        <p class="kpi__sub">by market value</p>
+      </section>
+    </div>`;
+}
+
+function valuationChart(player) {
+  const { range, marketValueEur: market, predictedEur: model } = player;
+  const level = player.confidence.level;
+  const scale = Charts.linearScale(Math.max(range?.highEur ?? 0, market, model));
+  return `
+    <section class="card chart" aria-labelledby="chart-title">
+      <header class="chart__head">
+        <h2 class="chart__title" id="chart-title">What the model allows</h2>
+        ${Charts.rangeLegend(level, Boolean(range))}
       </header>
-      <div class="band__track" aria-hidden="true">
-        ${rangeLayer}
-        <div class="band__marker band__marker--model" style="left:${pct(model)}%">
-          <div class="band__flag band__flag--top"><span>Model</span>${money(model)}</div>
-        </div>
-        <div class="band__marker band__marker--market" style="left:${pct(market)}%">
-          <div class="band__flag band__flag--bottom">${money(market)}<span>Market</span></div>
-        </div>
-      </div>
-      <div class="band__scale" aria-hidden="true"><span>€0</span><span>${money(top)}</span></div>
+      <p class="visually-hidden">${spokenSummary(player)}</p>
+      ${Charts.rangePlot({ range, model, market, scale, level })}
+      <p class="chart__note">“Market” is ${esc(player.marketValueSource ?? "Transfermarkt")}’s published valuation —
+        a community estimate moderated by its editors, not a fee anyone paid.</p>
     </section>`;
 }
 
@@ -207,8 +270,8 @@ function band(player) {
  */
 function verdict(player) {
   const gap = Math.abs(Math.round(player.gapPct));
-  const surname = player.name.split(" ").slice(-1)[0];
-  const direction = player.gapPct > 0 ? "more" : "less";
+  const surname = esc(surnameOf(player.name));
+  const direction = directionOf(player.gapPct);
 
   let headline;
   if (player.marketInRange === false) {
@@ -259,42 +322,85 @@ function caveat(player) {
 
 /* --- panels ------------------------------------------------------------ */
 
-function contractLine(player) {
+function contractText(player) {
   if (!player.contractExpiry) return "";
   const expiry = new Date(player.contractExpiry);
   const years = (expiry - new Date()) / (365.25 * 24 * 3600 * 1000);
   const when = expiry.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-  return ` · contract to ${when}${years < 1 ? " (under a year)" : ""}`;
+  return `Contract to ${when}${years < 1 ? " · under a year left" : ""}`;
+}
+
+function metaChips(player) {
+  return [player.position, `Age ${player.age}`, player.nationality, player.club, contractText(player)]
+    .filter(Boolean)
+    .map((text) => `<li class="chip">${esc(text)}</li>`)
+    .join("");
+}
+
+// Every minute of a 38-game season: the fixed end of the minutes scale, so a
+// season's bar means the same length on every player's page.
+const FULL_SEASON_MINUTES = 38 * 90;
+
+function seasonRow({ label, note, minutes, possible, detail, tip }) {
+  const share = Math.min(1, minutes / FULL_SEASON_MINUTES);
+  const bar = minutes
+    ? `<span class="season__bar" style="--share:${share}" tabindex="0" role="img"
+         aria-label="${esc(`${label}: ${minutesLabel(minutes)}`)}"
+         data-tip-value="${esc(minutesLabel(minutes))}" data-tip-label="${esc(tip)}"></span>`
+    : "";
+  return `
+    <div class="season">
+      <span class="season__label">${label}${note ? `<small>${note}</small>` : ""}</span>
+      <span class="season__track" style="--possible:${Math.min(1, possible / FULL_SEASON_MINUTES)}">${bar}</span>
+      <span class="season__figure">${minutesLabel(minutes)}<small>${detail}</small></span>
+    </div>`;
 }
 
 function seasonsPanel(player) {
-  const seasons = player.seasons ?? [];
-  if (!seasons.length) {
-    return `<section><h2 class="panel__title">Minutes by season</h2>
+  const past = player.seasons ?? [];
+  const now = player.evidence.thisSeason;
+  const title = `<h2 class="panel__title">Minutes by season</h2>`;
+
+  const rows = past.map((s) =>
+    seasonRow({
+      label: seasonLabel(s.season),
+      minutes: s.minutes,
+      possible: FULL_SEASON_MINUTES,
+      detail: `${s.goals}G ${s.assists}A`,
+      tip: `${seasonLabel(s.season)} · ${s.competition} · ${count(s.goals, "goal")}, ${count(s.assists, "assist")}`,
+    }),
+  );
+  // The season in progress gets a track only as long as the games played so
+  // far, or four gameweeks would read as a player who barely features.
+  if (now.known && thisSeason !== null) {
+    rows.push(
+      seasonRow({
+        label: seasonLabel(thisSeason),
+        note: "so far",
+        minutes: now.minutes,
+        possible: now.gameweeks * 90,
+        detail: `of ${minutesLabel(now.gameweeks * 90)}`,
+        tip: `${seasonLabel(thisSeason)} so far · Premier League · ${count(now.starts, "start")} in ${count(now.gameweeks, "gameweek")}`,
+      }),
+    );
+  }
+
+  if (!rows.length) {
+    return `<section class="card panel">${title}
       <p class="panel__empty">No season on record in the competitions we cover.</p></section>`;
   }
 
-  const peak = Math.max(...seasons.map((s) => s.minutes), 1);
-  const rows = seasons
-    .map((season) => {
-      const isPL = season.competition === "Premier League";
-      return `
-        <div class="season">
-          <span class="season__label">${seasonLabel(season.season)}</span>
-          <div class="season__bar">
-            <div class="season__fill${isPL ? "" : " season__fill--other"}" style="width:${(season.minutes / peak) * 100}%"></div>
-          </div>
-          <span class="season__figure">${season.minutes.toLocaleString("en-GB")}′</span>
-        </div>`;
-    })
-    .join("");
+  const leagues = [...new Set(past.map((s) => s.competition))];
+  const where =
+    !leagues.length || (leagues.length === 1 && leagues[0] === "Premier League")
+      ? "Premier League minutes."
+      : `Earlier seasons in ${leagues.join(" and ")}${now.known ? "; this one in the Premier League" : ""}.`;
 
-  const league = seasons[0].competition;
   return `
-    <section>
-      <h2 class="panel__title">Minutes by season</h2>
-      <div class="seasons">${rows}</div>
-      <p class="panel__body">${league === "Premier League" ? "Premier League." : `Outside the Premier League — ${league}.`}</p>
+    <section class="card panel">${title}
+      <div class="seasons">${rows.join("")}</div>
+      <div class="season__scale" aria-hidden="true"><span>0′</span><span>${minutesLabel(FULL_SEASON_MINUTES)}</span></div>
+      <p class="panel__body">${where} The track behind each bar is every minute of a 38-game season.</p>
     </section>`;
 }
 
@@ -303,43 +409,38 @@ const PEERS_NEEDED = 5;
 function peersPanel(player) {
   const peers = player.peers;
   const plural = positionPlural(peers.position);
-  const title = `<h2 class="panel__title">Against other ${plural}</h2>`;
+  const title = `<h2 class="panel__title">Against other ${esc(plural)}</h2>`;
 
-  // A percentile drawn from one or two players is theatre, not information.
+  // A distribution drawn from one or two players is theatre, not information.
   if (peers.count < PEERS_NEEDED) {
     const others = peers.count - 1;
-    return `<section>${title}
+    return `<section class="card panel">${title}
       <p class="panel__empty">
         ${others === 0
-          ? `The only ${positionSingular(peers.position)} in the league, so there is nobody to compare against.`
+          ? `The only ${esc(positionSingular(peers.position))} in the league, so there is nobody to compare against.`
           : `Only ${count(others, "other " + positionSingular(peers.position))} in the league — too few to place this value among.`}
       </p></section>`;
   }
 
   const percent = Math.round(peers.valuePercentile * 100);
-  // Keep the label inside the track when the pin sits at either end.
-  const shift = percent > 88 ? "-100%" : percent < 12 ? "0%" : "-50%";
+  const table = new URLSearchParams({ position: peers.position }).toString();
   return `
-    <section>${title}
-      <div class="peer__scale">
-        <div class="peer__pin" style="left:${percent}%">
-          <span class="peer__pin-label" style="transform:translateX(${shift})">${money(player.marketValueEur)}</span>
-        </div>
-      </div>
-      <div class="peer__ends"><span>Cheapest</span><span>Most valuable</span></div>
+    <section class="card panel">${title}
+      <div id="peer-strip"></div>
       <p class="panel__body">
-        Worth more than ${percent}% of the ${peers.count} ${plural} in the league.
-        The median one is valued at ${money(peers.medianValueEur)}.
+        Worth more than ${percent}% of the ${peers.count} ${esc(plural)} in the league. Each dot is
+        one of them, on a log scale; ${esc(surnameOf(player.name))} is the large ringed one.
       </p>
+      <a class="panel__link" href="#all?${table}">All ${peers.count} ${esc(plural)} as a table →</a>
     </section>`;
 }
 
 function evidencePanel(player) {
-  const { thisSeason, premierLeague, otherLeagues } = player.evidence;
+  const { thisSeason: now, premierLeague, otherLeagues } = player.evidence;
   const rows = [
     [
-      `This season (${thisSeason.gameweeks} gameweeks)`,
-      thisSeason.known ? `${count(thisSeason.minutes, "minute")} · ${count(thisSeason.starts, "start")}` : null,
+      `This season (${now.gameweeks} gameweeks)`,
+      now.known ? `${count(now.minutes, "minute")} · ${count(now.starts, "start")}` : null,
       "Not in this season’s squad data",
     ],
     [
@@ -366,7 +467,7 @@ function evidencePanel(player) {
   ];
 
   return `
-    <section>
+    <section class="card panel panel--wide">
       <h2 class="panel__title">What the model had to go on</h2>
       ${rows
         .map(
@@ -383,6 +484,7 @@ function evidencePanel(player) {
 /* --- views ------------------------------------------------------------- */
 
 function showBoard() {
+  Tip.hide();
   nodes.player.hidden = true;
   nodes.compare.hidden = true;
   nodes.board.hidden = false;
@@ -392,6 +494,7 @@ function showBoard() {
 
 async function open(id) {
   closeSuggestions();
+  Tip.hide();
   nodes.query.value = "";
   if (location.hash !== `#p${id}`) location.hash = `p${id}`;
 
@@ -405,24 +508,41 @@ async function open(id) {
     return;
   }
 
+  const peers = everyone.filter((p) => p.position === player.position);
+  const rank = peers.filter((p) => p.marketValueEur > player.marketValueEur).length + 1;
   const cameFrom = nodes.viewAll.hidden ? "Where it disagrees" : "All players";
+
   nodes.player.innerHTML = `
     <button class="back" type="button">← ${cameFrom}</button>
-    <h1 class="player__name">${player.name}</h1>
-    <p class="player__meta">${player.position} · ${player.age} · ${player.nationality} · ${player.club}${contractLine(player)}</p>
-    <p class="player__source">“Market” is ${player.marketValueSource ?? "Transfermarkt"}’s published valuation — a community estimate moderated by its editors, not a fee anyone paid.</p>
-    ${band(player)}
+    <header class="player__head">
+      <h1 class="player__name">${esc(player.name)}</h1>
+      <ul class="player__meta" aria-label="Profile">${metaChips(player)}</ul>
+    </header>
+    ${statTiles(player, rank)}
+    ${valuationChart(player)}
     ${verdict(player)}
     <div class="panels">
       ${seasonsPanel(player)}
       ${peersPanel(player)}
       ${evidencePanel(player)}
     </div>
-    <div class="picker">
-      <label class="picker__label" for="compare-with">Put this next to</label>
-      <input id="compare-with" list="compare-options" placeholder="another player">
+    <div class="card picker">
+      <label class="picker__label" for="compare-with">Put ${esc(surnameOf(player.name))} next to</label>
+      <input id="compare-with" list="compare-options" placeholder="another player’s name">
       <datalist id="compare-options"></datalist>
+      <span class="picker__hint">Both ranges on one scale.</span>
     </div>`;
+
+  const strip = nodes.player.querySelector("#peer-strip");
+  if (strip) {
+    Charts.renderPeerStrip(strip, {
+      peers,
+      focusId: player.id,
+      onPick: (pick) => {
+        location.hash = `p${pick}`;
+      },
+    });
+  }
 
   nodes.player.querySelector(".back").addEventListener("click", () => {
     location.hash = nodes.viewAll.hidden ? "" : gridHash();
@@ -457,30 +577,31 @@ function wirePicker(root, currentId) {
   });
 }
 
-function compareRow(player, top) {
-  const pct = (value) => Math.min(100, (value / top) * 100);
-  const range = player.range;
-  const rangeLayer = range
-    ? `<div class="band__range" style="left:${pct(range.lowEur)}%;right:${100 - pct(range.highEur)}%"></div>`
-    : "";
-
+function compareRow(player, scale) {
+  const direction = directionOf(player.gapPct);
   return `
     <div class="compare__row">
       <div class="compare__who">
-        <span class="compare__name">${player.name}</span>
-        <span class="compare__meta">${player.club} · ${player.position} · ${player.age}</span>
-        <span class="compare__figures">market ${money(player.marketValueEur)} · model ${money(player.predictedEur)}</span>
+        <a class="compare__name" href="#p${player.id}">${esc(player.name)}</a>
+        <span class="compare__meta">${esc(player.club)} · ${esc(player.position)} · ${player.age}</span>
+        <span class="compare__figures kpi__dir">
+          <span class="key key--${direction}" aria-hidden="true"></span>Model asks ${Math.abs(Math.round(player.gapPct))}% ${direction}
+        </span>
       </div>
-      <div class="band__track">
-        ${rangeLayer}
-        <div class="band__marker band__marker--model" style="left:${pct(player.predictedEur)}%"></div>
-        <div class="band__marker band__marker--market" style="left:${pct(player.marketValueEur)}%"></div>
-      </div>
+      <p class="visually-hidden">${esc(player.name)}: ${spokenSummary(player)}</p>
+      ${Charts.rangePlot({
+        range: player.range,
+        model: player.predictedEur,
+        market: player.marketValueEur,
+        scale,
+        level: player.confidence.level,
+      })}
     </div>`;
 }
 
 async function compare(leftId, rightId) {
   closeSuggestions();
+  Tip.hide();
   let pair;
   try {
     pair = await Promise.all([api(`/api/players/${leftId}`), api(`/api/players/${rightId}`)]);
@@ -492,20 +613,22 @@ async function compare(leftId, rightId) {
     return;
   }
 
-  // One scale for both, or the bands would not be comparable.
-  const top = Math.max(...pair.map((p) => Math.max(p.range?.highEur ?? 0, p.marketValueEur, p.predictedEur))) * 1.08;
+  // One scale for both, or the ranges could not be read against each other.
+  const scale = Charts.linearScale(
+    Math.max(...pair.map((p) => Math.max(p.range?.highEur ?? 0, p.marketValueEur, p.predictedEur))),
+  );
 
   nodes.compare.innerHTML = `
-    <button class="back" type="button">← ${pair[0].name}</button>
-    <h1 class="compare__title">${pair[0].name} and ${pair[1].name}</h1>
-    <p class="compare__lead">
-      Both ranges on one scale. The darker line is the model’s estimate, the
-      orange one is the market.
-    </p>
-    <div class="compare__rows">
-      ${pair.map((p) => compareRow(p, top)).join("")}
-      <div class="compare__scale"><span>€0</span><span>${money(top)}</span></div>
-    </div>`;
+    <button class="back" type="button">← ${esc(pair[0].name)}</button>
+    <h1 class="compare__title">${esc(pair[0].name)} and ${esc(pair[1].name)}</h1>
+    <p class="compare__lead">Both on one scale, so each range can be read against the other.</p>
+    <section class="card compare__card">
+      <header class="chart__head">
+        <h2 class="chart__title">What the model allows</h2>
+        ${Charts.rangeLegend(pair[0].confidence.level, pair.some((p) => p.range))}
+      </header>
+      ${pair.map((p) => compareRow(p, scale)).join("")}
+    </section>`;
 
   nodes.compare.querySelector(".back").addEventListener("click", () => {
     location.hash = `p${leftId}`;
@@ -517,7 +640,10 @@ async function compare(leftId, rightId) {
   window.scrollTo({ top: 0, behavior: "instant" });
 }
 
-function rankList(target, players, kind) {
+/* --- board ------------------------------------------------------------- */
+
+/** Both lists share one bar scale, so a long bar means the same on either side. */
+function rankList(target, players, largest) {
   target.innerHTML = "";
   players.forEach((player, index) => {
     const item = document.createElement("li");
@@ -527,7 +653,8 @@ function rankList(target, players, kind) {
     button.innerHTML = `
       <span class="rank__pos">${String(index + 1).padStart(2, "0")}</span>
       <span><span class="rank__name"></span><span class="rank__club"></span></span>
-      <span class="rank__gap rank__gap--${kind}"></span>`;
+      ${Charts.gapBar(player.gapPct, largest)}
+      <span class="rank__gap"></span>`;
     button.querySelector(".rank__name").textContent = player.name;
     button.querySelector(".rank__club").textContent =
       `${player.club} · ${money(player.marketValueEur)} → ${money(player.predictedEur)}`;
@@ -544,6 +671,10 @@ const sorters = {
   gap: (a, b) => Math.abs(b.gapPct) - Math.abs(a.gapPct),
   name: (a, b) => a.name.localeCompare(b.name),
 };
+
+// Where the table's diverging bars saturate. The asking-less side cannot pass
+// -100%, so this keeps both halves on the same footing.
+const GAP_BAR_CAP = 100;
 
 function renderGrid() {
   const club = nodes.filterClub.value;
@@ -576,7 +707,8 @@ function renderGrid() {
       <span role="cell"><span class="grid__name"></span><span class="grid__meta"></span></span>
       <span class="grid__figure" role="cell"></span>
       <span class="grid__figure" role="cell"></span>
-      <span class="grid__gap grid__gap--${player.gapPct > 0 ? "under" : "over"}" role="cell"></span>`;
+      <span aria-hidden="true">${Charts.divergingBar(player.gapPct, GAP_BAR_CAP)}</span>
+      <span class="grid__gap" role="cell"></span>`;
     const figures = button.querySelectorAll(".grid__figure");
     button.querySelector(".grid__name").textContent = player.name;
     button.querySelector(".grid__meta").textContent = `${player.club} · ${player.position}`;
@@ -647,6 +779,7 @@ function route() {
       api("/api/rankings?limit=8"),
     ]);
     everyone = players;
+    thisSeason = Math.max(...meta.seasons) + 1;
 
     nodes.stat.textContent = `${meta.players} players · ${meta.clubs} clubs`;
     nodes.tablesNote.textContent =
@@ -660,8 +793,9 @@ function route() {
     for (const club of meta.clubList) nodes.filterClub.append(new Option(club, club));
     for (const position of meta.positionList) nodes.filterPosition.append(new Option(position, position));
 
-    rankList(nodes.underrated, ranks.underrated, "under");
-    rankList(nodes.overrated, ranks.overrated, "over");
+    const largest = Math.max(1, ...[...ranks.underrated, ...ranks.overrated].map((p) => Math.abs(p.gapPct)));
+    rankList(nodes.underrated, ranks.underrated, largest);
+    rankList(nodes.overrated, ranks.overrated, largest);
 
     for (const button of document.querySelectorAll(".view")) {
       button.addEventListener("click", () => switchView(button.dataset.view));

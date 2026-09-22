@@ -330,7 +330,7 @@ backend/
     build_dataset.py              joins the sources into one CSV
   tests/                          unit tests (no network calls)
 frontend/
-  index.html, assets/             single page, no build step
+  index.html, assets/             single page, no build step (light + dark)
 notebooks/                        exploration and experiment log (executed)
 data/
   raw/                            cached API/HTML responses (gitignored)
