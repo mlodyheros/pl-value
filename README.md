@@ -19,10 +19,11 @@ stats, and lets you compare the model's estimate against their actual value.
   and nationality, are scraped from Transfermarkt's current squad pages.
 - A scikit-learn **linear regression** pipeline (on log-transformed value,
   since transfer values are heavily right-skewed) is trained on the merged
-  dataset. Features: age and age², this season's minutes share, the share of
-  minutes played across past seasons and in the newest one alone, past-season
+  dataset. Features: a bending age curve, this season's minutes share, the share
+  of minutes played across past seasons and in the newest one alone, past-season
   goals+assists per 90 (from Premier League history where it exists, otherwise
-  from other big leagues), data-coverage flags, position and club.
+  from other big leagues), the last transfer fee paid, terms for a player who is
+  not featuring, data-coverage flags, position and club.
 
 ## Layout
 
@@ -47,7 +48,7 @@ No API keys and no accounts: both sources are public.
 #    cached under data/raw/, so re-runs are near-instant (a cold build is well
 #    under a minute). The season-to-date FPL response expires after 24h;
 #    --refresh-fpl forces a refetch.
-python -m backend.data.build_dataset
+python -m backend.sources.build_dataset
 
 # 2. Train the model. Prints held-out and 5-fold CV R²/MAE/RMSE and writes
 #    reports/figures/pred_vs_actual.png and models/linear_regression.joblib
@@ -58,9 +59,8 @@ python -m backend.model
 python -m backend.predict --player "Erling Haaland"
 
 # ...or predict for a hypothetical player by hand
-python -m backend.predict --age 24 --position "Centre-Forward" --club "Manchester City FC" \
-    --goals 20 --assists 8 --appearances 34 --minutes-share 0.9 --starts-share 1 \
-    --hist-minutes-share 0.8
+python -m backend.predict --age 24 --position "Centre-Forward" --club "Man City" \
+    --minutes-share 0.9 --career-minutes-share 0.85 --career-gi-per90 0.8
 ```
 
 `notebooks/01_model_exploration.ipynb` walks through the data, the model and
@@ -68,7 +68,7 @@ the experiment log behind the modelling choices (run the dataset build first).
 
 ## Current performance
 
-5-fold cross-validated on ~540 players: **R² ≈ 0.65** (on log value), **MAE ≈ €8.2m**.
+5-fold cross-validated on ~540 players: **R² ≈ 0.76** (on log value), **MAE ≈ €6.6m**.
 Trust the CV numbers over the single 80/20 split, which swings by ~0.1 R² between
 seeds at this dataset size.
 
@@ -140,12 +140,14 @@ the top 10%, at some cost in log-R².
 ### The fitted model
 
 ```
-log(1 + value) = 16.59
-   + 2.45·z(age) − 3.10·z(age²)
-   + 0.14·z(minutes_share)                              this season
-   + 0.27·z(career_minutes_share) + 0.17·z(recent_minutes_share)
-   + 0.17·z(career_gi_per90)
-   + 0.04·z(has_fpl_record) + 0.06·z(has_hist_record) − 0.18·z(has_any_history)
+log(1 + value) = 16.46
+   + 1.63·z(age) − 2.34·z(age²) + 0.17·z(age−23)⁺ − 0.18·z(age−29)⁺
+   + 0.15·z(minutes_share)                              this season
+   + 0.19·z(career_minutes_share) + 0.19·z(recent_minutes_share)
+   + 0.16·z(career_gi_per90)
+   + 0.49·z(log_transfer_fee) − 0.48·z(has_transfer_fee)
+   − 0.32·z(idle) + 0.13·z(idle × career) + 0.24·z(idle × fee)
+   + 0.04·z(has_fpl_record) + 0.04·z(has_hist_record) − 0.20·z(has_any_history)
    + position effect + club effect
 ```
 
