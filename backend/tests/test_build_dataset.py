@@ -16,6 +16,7 @@ def test_build_dataset_uses_fpl_club_list(monkeypatch, tmp_path):
     monkeypatch.setattr(bd.fpl_client, "parse_players", lambda data: [])
     monkeypatch.setattr(bd.tm, "fetch_league_squads", lambda clubs: seen.extend(clubs) or [])
     monkeypatch.setattr(bd.tm, "fetch_league_arrivals", lambda clubs, season: [])
+    monkeypatch.setattr(bd.kaggle_appearances, "build_index", lambda seasons: {})
     monkeypatch.setattr(bd, "PROCESSED_DATASET_PATH", tmp_path / "players.csv")
 
     with pytest.raises(KeyError):  # empty squad list -> no columns to drop on
@@ -104,6 +105,7 @@ def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
                          "by_name": {}},
     )
     monkeypatch.setattr(bd.tm, "fetch_league_arrivals", lambda clubs, season: [])
+    monkeypatch.setattr(bd.kaggle_appearances, "build_index", lambda seasons: {})
     monkeypatch.setattr(bd, "SEASONS", [2025])
     monkeypatch.setattr(bd, "PROCESSED_DATASET_PATH", tmp_path / "out" / "players.csv")
 
@@ -250,3 +252,75 @@ def test_fee_columns_ignore_an_arrival_at_a_different_club():
                                     "fee_kind": "fee", "fee_eur": 1e6}])
 
     assert bd._fee_columns(player, {}, arrivals)["has_transfer_fee"] == 0
+
+
+def test_nonpl_columns_fall_back_to_kaggle_when_understat_misses_the_name(monkeypatch):
+    """Understat spells some names its own way; Transfermarkt's files do not."""
+    monkeypatch.setattr(bd, "SEASONS", [2024, 2025])
+    kaggle = {"jamie gittens": [{"age": 21.9, "records": [
+        {"season": 2024, "minutes": 1700, "goals": 5, "assists": 3, "season_minutes": 3060},
+        {"season": 2025, "minutes": 1670, "goals": 4, "assists": 2, "season_minutes": 3060},
+    ]}]}
+    player = {"name": "Jamie Gittens", "position": "Left Winger", "age": 22}
+
+    columns = bd._nonpl_columns(player, {}, kaggle)
+
+    assert columns["has_nonpl_record"] == 1
+    assert columns["nonpl_minutes"] == 3370
+    assert columns["nonpl_available_minutes"] == 6120
+    assert columns["nonpl_recent_minutes"] == 1670
+
+
+def test_nonpl_columns_prefer_understat_when_it_has_the_player(monkeypatch):
+    monkeypatch.setattr(bd, "SEASONS", [2025])
+    understat = {"bradley barcola": [{"position": "F M S", "minutes": 2223, "goals": 14,
+                                      "assists": 9, "season_minutes": 3060, "season": 2025}]}
+    kaggle = {"bradley barcola": [{"age": 24.0, "records": [
+        {"season": 2025, "minutes": 1, "goals": 0, "assists": 0, "season_minutes": 3060}]}]}
+    player = {"name": "Bradley Barcola", "position": "Left Winger", "age": 24}
+
+    assert bd._nonpl_columns(player, understat, kaggle)["nonpl_minutes"] == 2223
+
+
+def test_normalize_name_transliterates_letters_that_do_not_decompose():
+    assert bd.normalize_name("Đorđe Petrović") == "djordje petrovic"
+    assert bd.normalize_name("Martin Ødegaard") == "martin odegaard"
+    assert bd.normalize_name("Łukasz Fabiański") == "lukasz fabianski"
+
+
+def _teammate(first, second, web):
+    return {**_fpl(first, second, web), "fpl_team": "Arsenal"}
+
+
+def test_match_fpl_falls_back_to_a_teammate_whose_short_name_is_the_surname():
+    team = [_teammate("Benjamin", "White", "White"), _teammate("William", "Saliba", "Saliba")]
+    by_full, by_web = bd._index_fpl_players([])
+
+    assert bd._match_fpl("Ben White", by_full, by_web, team)["first_name"] == "Benjamin"
+    # FPL's hyphenated surname still counts as the player's surname.
+    team.append(_teammate("Jamie", "Bynoe-Gittens", "Gittens"))
+    assert bd._match_fpl("Jamie Gittens", by_full, by_web, team)["second_name"] == "Bynoe-Gittens"
+
+
+def test_match_fpl_in_team_accepts_a_close_spelling():
+    team = [_teammate("Yehor", "Yarmoliuk", "Yarmoliuk"), _teammate("Mikkel", "Damsgaard", "Damsgaard")]
+    by_full, by_web = bd._index_fpl_players([])
+
+    assert bd._match_fpl("Yegor Yarmolyuk", by_full, by_web, team)["first_name"] == "Yehor"
+
+
+def test_match_fpl_in_team_refuses_when_two_teammates_fit():
+    team = [_teammate("Adam", "Smith", "A.Smith"), _teammate("Brandon", "Smith", "B.Smith")]
+    by_full, by_web = bd._index_fpl_players([])
+
+    assert bd._match_fpl("Callum Smith", by_full, by_web, team) is None
+    # ...and without a club to look in, nothing loose is tried at all.
+    assert bd._match_fpl("Ben White", by_full, by_web, None) is None
+
+
+def test_match_fpl_in_team_takes_a_single_name_as_a_first_name():
+    """Transfermarkt's 'Alisson' is FPL's 'Alisson Becker', short name 'A.Becker'."""
+    team = [_teammate("Alisson", "Becker", "A.Becker"), _teammate("Giorgi", "Mamardashvili", "Mamardashvili")]
+    by_full, by_web = bd._index_fpl_players([])
+
+    assert bd._match_fpl("Alisson", by_full, by_web, team)["second_name"] == "Becker"

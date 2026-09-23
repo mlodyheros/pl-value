@@ -106,10 +106,12 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
       multiplied by their career share and by their fee.
 
       These exist because a handful of well-known players were badly
-      under-valued - Alisson at EUR5.7m against a market EUR15m, Grealish at
-      EUR9.7m against EUR20m - and the cause was not age, as it first appeared.
-      It was that a spell out of the side four gameweeks into a season was being
-      read as strong evidence. The products say: when someone is not playing,
+      under-valued - Grealish at EUR9.7m against a market EUR20m among them -
+      and the cause was not age, as it first appeared. It was that a spell out
+      of the side four gameweeks into a season was being read as strong
+      evidence. (Alisson was cited here too, wrongly: he had been playing every
+      minute, and only looked idle because FPL calls him "Alisson Becker" and
+      the join missed him - see build_dataset._match_fpl_in_team.) The products say: when someone is not playing,
       lean on what they have done before and what they cost. A linear model
       cannot form a product of its own features, so this had to be built.
 

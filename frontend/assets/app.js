@@ -315,7 +315,22 @@ function staleValuation(player) {
   return years <= RECENT_FEE_YEARS && fee.eur >= STALE_VALUE_FEE_MULTIPLE * player.marketValueEur;
 }
 
+// Missing from the FPL list: for almost everyone that means out of the first-team
+// squad, and the model reads it so. A full PL season on record says otherwise.
+const ESTABLISHED_PL_MINUTES = 3420;
+
+function missingFromSquadList(player) {
+  const { thisSeason, premierLeague } = player.evidence;
+  return !thisSeason.known && premierLeague.minutes >= ESTABLISHED_PL_MINUTES;
+}
+
 function caveat(player) {
+  if (missingFromSquadList(player)) {
+    return `<p class="verdict__caveat">This player is not in this season’s Fantasy Premier League
+      list. For almost everyone that means they are outside the first-team squad, and the model
+      reads it that way — but with ${count(player.evidence.premierLeague.minutes, "Premier League minute")}
+      behind them, an injury is just as likely. If that is the reason, this estimate is too low.</p>`;
+  }
   if (staleValuation(player)) {
     const multiple = Math.round(player.lastFee.eur / player.marketValueEur);
     return `<p class="verdict__caveat">A club paid ${money(player.lastFee.eur)} for this player in
