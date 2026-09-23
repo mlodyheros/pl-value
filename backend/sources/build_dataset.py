@@ -16,6 +16,7 @@ import pandas as pd
 from backend.config import PROCESSED_DATASET_PATH, SEASONS
 from backend.sources import fpl_archive_client as archive
 from backend.sources import fpl_client
+from backend.sources import kaggle_appearances
 from backend.sources import transfer_fees
 from backend.sources import transfermarkt_scraper as tm
 from backend.sources import understat_client as us
@@ -71,9 +72,61 @@ def _index_fpl_players(players: list[dict]) -> tuple[dict, dict]:
     return by_full, by_web
 
 
-def _match_fpl(name: str, by_full: dict, by_web: dict) -> dict | None:
+# Within one club a looser spelling match is safe; across the league it is not.
+_FPL_TEAM_FUZZY_CUTOFF = 0.75
+
+
+def _name_tokens(name: str) -> set[str]:
+    """Tokens of a normalized name, hyphenated parts included ('bynoe-gittens')."""
+    key = normalize_name(name)
+    return set(key.replace("-", " ").split()) | set(key.split())
+
+
+def _match_fpl_in_team(name: str, teammates: list[dict]) -> dict | None:
+    """Last resort, within the player's own club only.
+
+    The two sources spell a few players differently enough that no global rule
+    is safe: 'Ben White' is 'Benjamin White', 'Yegor Yarmolyuk' is 'Yehor
+    Yarmoliuk', 'Chema Andrés' is 'José María Andrés Baixauli', 'Dominic
+    Solanke' is 'Dominic Solanke-Mitchell'. Missing them cost each player this
+    season's minutes - and some their whole PL history - so they looked idle.
+    Inside one squad of ~30, a surname that is someone's FPL short name, or a
+    close spelling of a full name, identifies them - provided exactly one
+    teammate fits. So does a single name that is a teammate's first name:
+    Transfermarkt's 'Alisson' is FPL's 'Alisson Becker' ('A.Becker'), and missing
+    him had the model valuing a keeper who played every minute as if he never
+    played at all.
+    """
+    tokens = normalize_name(name).split()
+    if len(tokens) == 1:
+        by_first_name = [p for p in teammates if tokens[0] in _name_tokens(p["first_name"])]
+        if len(by_first_name) == 1:
+            return by_first_name[0]
+
+    surname = tokens[-1] if tokens else ""
+    by_short_name = [
+        p for p in teammates
+        if surname and (
+            normalize_name(p["web_name"]) == surname
+            or surname in _name_tokens(p["second_name"])
+        )
+    ]
+    if len(by_short_name) == 1:
+        return by_short_name[0]
+
+    fulls = {normalize_name(f"{p['first_name']} {p['second_name']}"): p for p in teammates}
+    close = difflib.get_close_matches(
+        normalize_name(name), fulls.keys(), n=2, cutoff=_FPL_TEAM_FUZZY_CUTOFF
+    )
+    return fulls[close[0]] if len(close) == 1 else None
+
+
+def _match_fpl(
+    name: str, by_full: dict, by_web: dict, teammates: list[dict] | None = None
+) -> dict | None:
     """Full name, short name (Transfermarkt's 'Gabriel'), unique name-token
-    subset (Transfermarkt's 'David Raya' vs FPL's 'David Raya Martin'), then fuzzy."""
+    subset (Transfermarkt's 'David Raya' vs FPL's 'David Raya Martin'), fuzzy,
+    and finally a looser match inside the player's own club."""
     key = normalize_name(name)
     if key in by_full:
         return by_full[key]
@@ -86,7 +139,9 @@ def _match_fpl(name: str, by_full: dict, by_web: dict) -> dict | None:
         if len(supersets) == 1:
             return supersets[0]
     close = difflib.get_close_matches(key, by_full.keys(), n=1, cutoff=_FPL_FUZZY_CUTOFF)
-    return by_full[close[0]] if close else None
+    if close:
+        return by_full[close[0]]
+    return _match_fpl_in_team(name, teammates) if teammates else None
 
 
 def _match_understat(name: str, position: str, index: dict) -> list[dict] | None:
@@ -120,9 +175,16 @@ def _match_understat(name: str, position: str, index: dict) -> list[dict] | None
     return index[candidate]
 
 
-def _nonpl_columns(player: dict, index: dict) -> dict:
-    """Non-PL playing record, only for players with no PL history to speak of."""
+def _nonpl_columns(player: dict, index: dict, kaggle: dict | None = None) -> dict:
+    """Non-PL playing record, only for players with no PL history to speak of.
+
+    Understat first. When it cannot find the player - it spells some names its
+    own way - the same leagues from the Kaggle files, whose names come from
+    Transfermarkt like ours.
+    """
     records = _match_understat(player["name"], player.get("position", ""), index)
+    if not records and kaggle:
+        records = kaggle_appearances.lookup(kaggle, player["name"], player.get("age"))
     if not records:
         return {**_EMPTY_NONPL, "has_nonpl_record": 0, "nonpl_recent_minutes": 0,
                 "nonpl_recent_available_minutes": _PL_SEASON_MINUTES}
@@ -235,22 +297,35 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
     gameweeks = fpl_client.finished_gameweeks(fpl_data)
     logger.info("Found %d PL clubs; %d finished gameweeks", len(club_names), gameweeks)
 
-    squads = tm.fetch_league_squads(club_names)
+    # Club by club, so each player carries the FPL name of their club: the
+    # last-resort name match only looks among that club's FPL players.
+    squads = [
+        {**player, "fpl_team": club_name}
+        for club_name in club_names
+        for player in tm.fetch_league_squads([club_name])
+    ]
     logger.info("Scraped %d players total from Transfermarkt", len(squads))
     # The season being played now: the one after the last completed.
     arrivals = _index_arrivals(tm.fetch_league_arrivals(club_names, max(SEASONS) + 1))
     logger.info("Transfermarkt: %d arrivals this season", len(arrivals))
 
-    fpl_by_full, fpl_by_web = _index_fpl_players(fpl_client.parse_players(fpl_data))
+    fpl_players = fpl_client.parse_players(fpl_data)
+    fpl_by_full, fpl_by_web = _index_fpl_players(fpl_players)
+    fpl_by_team: dict[str, list[dict]] = {}
+    for fpl_player in fpl_players:
+        fpl_by_team.setdefault(fpl_player.get("fpl_team"), []).append(fpl_player)
     pl_history = archive.build_index(SEASONS)
     understat = us.build_index(seasons=SEASONS)
     fees = transfer_fees.build_index()
+    kaggle_leagues = kaggle_appearances.build_index(SEASONS)
     logger.info("Understat: indexed %d players outside the PL", len(understat))
 
     rows = []
     fpl_unmatched = []
     for player in squads:
-        fpl_player = _match_fpl(player["name"], fpl_by_full, fpl_by_web)
+        fpl_player = _match_fpl(
+            player["name"], fpl_by_full, fpl_by_web, fpl_by_team.get(player.get("fpl_team"))
+        )
         if fpl_player is None:
             fpl_unmatched.append(player["name"])
         rows.append(
@@ -258,7 +333,7 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
                 **player,
                 **_fpl_columns(fpl_player, gameweeks),
                 **_history_columns(player["name"], player.get("position", ""), fpl_player, pl_history),
-                **_nonpl_columns(player, understat),
+                **_nonpl_columns(player, understat, kaggle_leagues),
                 **_fee_columns(player, fees, arrivals),
             }
         )

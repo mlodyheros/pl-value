@@ -14,7 +14,8 @@ stats, and lets you compare the model's estimate against their actual value.
 - **Non-PL playing record** comes from [Understat](https://understat.com)
   (La Liga, Bundesliga, Serie A, Ligue 1, Russian league). A quarter of a PL
   squad has never played in the Premier League, and without this the model has
-  nothing to go on for them.
+  nothing to go on for them. Where Understat spells a name its own way, the same
+  leagues come from the optional Kaggle download instead.
 - **Market values** (the prediction target), plus each player's age, position
   and nationality, are scraped from Transfermarkt's current squad pages, and
   this season's signings and the fees paid for them from each club's transfers
@@ -72,7 +73,7 @@ the experiment log behind the modelling choices (run the dataset build first).
 
 ## Current performance
 
-5-fold cross-validated on ~540 players: **R² ≈ 0.80** (on log value), **MAE ≈ €6.3m**.
+5-fold cross-validated on ~540 players: **R² ≈ 0.82** (on log value), **MAE ≈ €6.1m**.
 Trust the CV numbers over the single 80/20 split, which swings by ~0.1 R² between
 seeds at this dataset size.
 
@@ -93,7 +94,8 @@ seeds at this dataset size.
 | + this season's fees, from each club's page | 0.77 | €6.5m | €13.5m |
 | + young regulars, and how old the fee is | 0.77 | €6.5m | €12.4m |
 | + older regulars | 0.77 | €6.4m | €12.5m |
-| + **backup keepers, and output kept up over a career** | **0.80** | **€6.3m** | **€12.2m** |
+| + backup keepers, and output kept up over a career | 0.80 | €6.3m | €12.2m |
+| + **names that actually join** | **0.82** | **€6.1m** | **€11.7m** |
 
 Findings worth keeping in mind:
 
@@ -122,8 +124,10 @@ Findings worth keeping in mind:
   (MAE €6.76m → €6.64m, 6 standard errors). The labels are kept in
   `backend/tests/fixtures/human_labels.csv` and checked by a test.
 - **A month out of the side is not evidence.** Several well-known players came
-  out badly under-valued — Alisson at €5.7m against a market €15m, Grealish at
-  €9.7m against €20m. It looked like an age problem and was not: players aged
+  out badly under-valued — Grealish at €9.7m against a market €20m among them.
+  (Alisson was the other example given here, wrongly: he had played every minute,
+  and only looked idle because the join below missed him.) It looked like an age
+  problem and was not: players aged
   31+ are *over*-predicted at the median (ratio 1.24). The cause was that
   missing the first four gameweeks was being read as a strong signal. Two
   product terms — "not playing" times career share, and times fee — tell the
@@ -147,6 +151,24 @@ Findings worth keeping in mind:
   among the dearest tenth (€12.4m → €12.5m), because the age curve refits and
   young stars ease down 1–3%. It fixes the error the reader flagged most
   emphatically.
+- **Some of the worst errors were joins, not judgement.** Name normalisation
+  dropped letters it could not decompose — "Gabriel Słonina" became "sonina",
+  "Đorđe Petrović" became "ore petrovic" — and FPL spells eight players differently
+  from Transfermarkt ("Benjamin White", "Yehor Yarmoliuk", "Dominic Solanke-Mitchell",
+  "José María Andrés Baixauli", and "Alisson Becker" for plain "Alisson"...). Every
+  one of them looked idle this season, and some lost their whole PL history:
+  Yarmolyuk came out at €4.8m against a market €32m, Petrović at €8.5m against €28m,
+  and Alisson — who had played every minute — at €3.5m against €15m. Letters are now transliterated, and a last,
+  looser match runs only among the player's own club, where a surname that is
+  someone's FPL short name — or a close spelling — is unambiguous. Kaggle's league
+  records, named like Transfermarkt's, recover the big-league players Understat
+  misspells (Gittens, Cho, Bahoya); adding the *other* leagues there made things
+  worse, since a minute in Denmark is not a minute in Spain. MAE €6.36m → €6.15m
+  (13 standard errors), and to €6.07m once Alisson was found too. A side effect
+  worth knowing: with the mismatches gone, "not in FPL" now reliably means
+  "outside the first-team squad", and the model prices it so — which would be
+  wrong for an established player who is merely missing from the list, so the
+  player page says so when it happens.
 - **Not playing means different things in goal.** The model was asking €8.4m for
   Liverpool's third-choice keeper (market €500k) and €5.5m for Chelsea's: with no
   minutes and no fee, club and position were all it had. Outfield, that record at
@@ -175,21 +197,21 @@ the top 10%, at some cost in log-R².
 ### The fitted model
 
 ```
-log(1 + value) = 16.44
-   + 1.51·z(age) − 1.90·z(age²) − 0.06·z(age−23)⁺ − 0.31·z(age−29)⁺
-   + 0.12·z(minutes_share)                              this season
-   + 0.12·z(career_minutes_share) + 0.18·z(recent_minutes_share)
-   + 0.15·z(career_gi_per90) + 0.05·z(career_gi_per90 × career_minutes)
-   + 0.77·z(log_transfer_fee) − 0.77·z(has_transfer_fee) + 0.04·z(years_since_fee)
-   − 0.32·z(idle) + 0.10·z(idle × career) + 0.23·z(idle × fee)
-   + 0.06·z((23−age)⁺ × recent_minutes) + 0.10·z((age−29)⁺ × career_minutes)
-   − 0.27·z(backup_keeper)
-   + 0.03·z(has_fpl_record) + 0.10·z(has_hist_record) − 0.21·z(has_any_history)
+log(1 + value) = 16.41
+   + 1.35·z(age) − 1.66·z(age²) − 0.12·z(age−23)⁺ − 0.33·z(age−29)⁺
+   + 0.11·z(minutes_share)                              this season
+   + 0.09·z(career_minutes_share) + 0.20·z(recent_minutes_share)
+   + 0.16·z(career_gi_per90) + 0.05·z(career_gi_per90 × career_minutes)
+   + 0.76·z(log_transfer_fee) − 0.76·z(has_transfer_fee) + 0.04·z(years_since_fee)
+   − 0.29·z(idle) + 0.09·z(idle × career) + 0.20·z(idle × fee)
+   + 0.06·z((23−age)⁺ × recent_minutes) + 0.09·z((age−29)⁺ × career_minutes)
+   − 0.25·z(backup_keeper)
+   + 0.18·z(has_fpl_record) + 0.11·z(has_hist_record) − 0.22·z(has_any_history)
    + position effect + club effect
 ```
 
 `z(x)` is the standardised feature. Club effects run from ×1.9 (Arsenal) to ×0.6
-(Hull City) against the baseline; goalkeepers who play sit ×0.95 against
+(Hull City) against the baseline; goalkeepers who play sit ×0.96 against
 attacking midfielders, and backups well below that. The age term alone peaks at 21, earlier than the raw data's mid-20s,
 because the minutes features already carry most of what age would otherwise say.
 
@@ -223,7 +245,7 @@ The model still under-predicts the very top (top-10% predicted/actual ≈ 0.90) 
 players with no PL history - about a quarter of the squad, flagged by `has_hist_record`.
 
 The very top is the hardest place. Haaland, at €220m, is worth nearly twice anyone
-else in the league and the model asks €163m (0.74): it pulls a lone extreme toward
+else in the league and the model asks about €170m (0.78): it pulls a lone extreme toward
 the rest. A premium for goals+assists per 90 above 0.5–0.7 does reach him — and
 overshoots to €255–268m while making the rest of the top tenth *worse*, so it is not
 used. Neither is weighting the stars more heavily, which moves him the wrong way.
@@ -330,11 +352,13 @@ edges of the project:
 - **Cached pages do not expire**: Transfermarkt pages are cached for good, so a
   rebuild in January still sees the summer's squads and signings. Delete
   `data/raw/transfermarkt/squad_*.html` and `transfers_*.html` to refresh them.
-- **Partial coverage for new arrivals**: Understat fills in players arriving from
-  the big five leagues, but not Portugal, the Championship, the Eredivisie or
-  anywhere else - so 61 players (~11%, €771m of market value) still have no record
-  anywhere (`has_any_history` flags them). Their median error is ~56% against ~31%
-  for everyone else, in both directions. This is the largest remaining gap, though
+- **Partial coverage for new arrivals**: Understat (and Kaggle, for the names it
+  misses) fills in players arriving from the big five leagues, but not Portugal,
+  the Championship, the Eredivisie or anywhere else - so 56 players (~10%, €683m of
+  market value) still have no record anywhere (`has_any_history` flags them). Their
+  median error is ~45% against ~26% for everyone else, in both directions. Kaggle
+  does hold those other leagues, but counted like the big five they made the model
+  worse, and with a "weaker league" flag they were no better than leaving them out. This is the largest remaining gap, though
   closing it entirely would only move overall MAE by ~2%: these are mostly cheap
   players, so the cost shows up per-player rather than in the average. Until it
   closes, those players are labelled low confidence rather than given a falsely
@@ -373,6 +397,7 @@ backend/
     fpl_archive_client.py         past PL seasons, one CSV per season (cached)
     understat_client.py           Understat league data for non-PL seasons (cached)
     transfer_fees.py              fees paid, from an optional Kaggle download
+    kaggle_appearances.py         big-league minutes Understat's spelling misses (optional)
     transfermarkt_scraper.py      squad/value scraper (cached, rate-limited)
     names.py                      name normalisation shared by the joins
     build_dataset.py              joins the sources into one CSV
