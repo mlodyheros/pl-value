@@ -25,8 +25,9 @@ stats, and lets you compare the model's estimate against their actual value.
   of minutes played across past seasons and in the newest one alone, past-season
   goals+assists per 90 (from Premier League history where it exists, otherwise
   from other big leagues), the last transfer fee paid and how long ago, terms
-  for a player who is not featuring, terms for young and older regulars,
-  data-coverage flags, position and club.
+  for a player who is not featuring, terms for young and older regulars and
+  for backup goalkeepers, output sustained over a career, data-coverage flags,
+  position and club.
 
 ## Layout
 
@@ -71,7 +72,7 @@ the experiment log behind the modelling choices (run the dataset build first).
 
 ## Current performance
 
-5-fold cross-validated on ~540 players: **R² ≈ 0.77** (on log value), **MAE ≈ €6.4m**.
+5-fold cross-validated on ~540 players: **R² ≈ 0.80** (on log value), **MAE ≈ €6.3m**.
 Trust the CV numbers over the single 80/20 split, which swings by ~0.1 R² between
 seeds at this dataset size.
 
@@ -91,7 +92,8 @@ seeds at this dataset size.
 | *the same, rebuilt at gameweek 5* | *0.76* | *€6.7m* | *€14.7m* |
 | + this season's fees, from each club's page | 0.77 | €6.5m | €13.5m |
 | + young regulars, and how old the fee is | 0.77 | €6.5m | €12.4m |
-| + **older regulars** | **0.77** | **€6.4m** | **€12.5m** |
+| + older regulars | 0.77 | €6.4m | €12.5m |
+| + **backup keepers, and output kept up over a career** | **0.80** | **€6.3m** | **€12.2m** |
 
 Findings worth keeping in mind:
 
@@ -145,6 +147,15 @@ Findings worth keeping in mind:
   among the dearest tenth (€12.4m → €12.5m), because the age curve refits and
   young stars ease down 1–3%. It fixes the error the reader flagged most
   emphatically.
+- **Not playing means different things in goal.** The model was asking €8.4m for
+  Liverpool's third-choice keeper (market €500k) and €5.5m for Chelsea's: with no
+  minutes and no fee, club and position were all it had. Outfield, that record at
+  19 describes a prospect; in goal it describes a backup. One flag for a keeper who
+  has played nowhere and cost nothing, plus goals+assists per 90 times career
+  minutes (a regular who produces, not a cameo that scored), took the median player
+  under €1m from 4.4× the market to 2.5× and lowered error overall and at the top
+  (10 and 5 standard errors). Log-R² jumps to 0.80 because those cheap players were
+  the model's worst relative misses.
 - **Minutes describe a player; a fee prices them.** Every feature above describes
   what happened on the pitch, which left the model blind to an expensive signing
   who has barely played — it asked €28m for Geovany Quenda against a market €42m.
@@ -164,21 +175,22 @@ the top 10%, at some cost in log-R².
 ### The fitted model
 
 ```
-log(1 + value) = 16.50
-   + 1.50·z(age) − 1.95·z(age²) − 0.02·z(age−23)⁺ − 0.32·z(age−29)⁺
+log(1 + value) = 16.44
+   + 1.51·z(age) − 1.90·z(age²) − 0.06·z(age−23)⁺ − 0.31·z(age−29)⁺
    + 0.12·z(minutes_share)                              this season
-   + 0.15·z(career_minutes_share) + 0.18·z(recent_minutes_share)
-   + 0.18·z(career_gi_per90)
-   + 0.72·z(log_transfer_fee) − 0.71·z(has_transfer_fee) + 0.05·z(years_since_fee)
-   − 0.39·z(idle) + 0.11·z(idle × career) + 0.29·z(idle × fee)
-   + 0.05·z((23−age)⁺ × recent_minutes) + 0.11·z((age−29)⁺ × career_minutes)
-   + 0.03·z(has_fpl_record) + 0.10·z(has_hist_record) − 0.22·z(has_any_history)
+   + 0.12·z(career_minutes_share) + 0.18·z(recent_minutes_share)
+   + 0.15·z(career_gi_per90) + 0.05·z(career_gi_per90 × career_minutes)
+   + 0.77·z(log_transfer_fee) − 0.77·z(has_transfer_fee) + 0.04·z(years_since_fee)
+   − 0.32·z(idle) + 0.10·z(idle × career) + 0.23·z(idle × fee)
+   + 0.06·z((23−age)⁺ × recent_minutes) + 0.10·z((age−29)⁺ × career_minutes)
+   − 0.27·z(backup_keeper)
+   + 0.03·z(has_fpl_record) + 0.10·z(has_hist_record) − 0.21·z(has_any_history)
    + position effect + club effect
 ```
 
 `z(x)` is the standardised feature. Club effects run from ×1.9 (Arsenal) to ×0.6
-(Hull City) against the baseline; goalkeepers sit ×0.83 against attacking
-midfielders. The age term alone peaks at 21, earlier than the raw data's mid-20s,
+(Hull City) against the baseline; goalkeepers who play sit ×0.95 against
+attacking midfielders, and backups well below that. The age term alone peaks at 21, earlier than the raw data's mid-20s,
 because the minutes features already carry most of what age would otherwise say.
 
 Two coefficients are negative on purpose. `age²` is the downward half of the
@@ -209,6 +221,12 @@ inside the numbers the model learns from rather than something it has to correct
 
 The model still under-predicts the very top (top-10% predicted/actual ≈ 0.90) and
 players with no PL history - about a quarter of the squad, flagged by `has_hist_record`.
+
+The very top is the hardest place. Haaland, at €220m, is worth nearly twice anyone
+else in the league and the model asks €163m (0.74): it pulls a lone extreme toward
+the rest. A premium for goals+assists per 90 above 0.5–0.7 does reach him — and
+overshoots to €255–268m while making the rest of the top tenth *worse*, so it is not
+used. Neither is weighting the stars more heavily, which moves him the wrong way.
 
 Rejected as leakage, not as a weak feature: Transfermarkt's *peak* market value
 (in the same Kaggle download) would cut MAE to €5.6m, but 39% of players have a

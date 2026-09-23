@@ -303,7 +303,27 @@ function verdict(player) {
 // estimate describes its own floor rather than the player.
 const MODEL_FLOOR_EUR = 2_000_000;
 
+// A fee this recent and this far above the market's figure means the figure
+// has not caught up yet: Sunderland paid €10m for a player valued at €300k.
+const STALE_VALUE_FEE_MULTIPLE = 3;
+const RECENT_FEE_YEARS = 1.25;
+
+function staleValuation(player) {
+  const fee = player.lastFee;
+  if (!fee?.date) return false;
+  const years = (new Date() - new Date(fee.date)) / (365.25 * 24 * 3600 * 1000);
+  return years <= RECENT_FEE_YEARS && fee.eur >= STALE_VALUE_FEE_MULTIPLE * player.marketValueEur;
+}
+
 function caveat(player) {
+  if (staleValuation(player)) {
+    const multiple = Math.round(player.lastFee.eur / player.marketValueEur);
+    return `<p class="verdict__caveat">A club paid ${money(player.lastFee.eur)} for this player in
+      ${new Date(player.lastFee.date).getFullYear()} — ${multiple} times the market’s current
+      ${money(player.marketValueEur)}. That valuation has most likely not caught up with the fee yet,
+      so the gap here says more about it than about the model.</p>`;
+  }
+
   const minutes =
     player.evidence.thisSeason.minutes +
     player.evidence.premierLeague.minutes +
