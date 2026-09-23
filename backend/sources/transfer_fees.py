@@ -10,6 +10,11 @@ A fee is not the target leaking. It is a real transaction, agreed before the
 valuation we predict, and it is the single most useful thing this project has
 added since playing history.
 
+It is a snapshot, though, and a squad changes after it is taken. Fees paid
+this season are therefore read from each club's own Transfermarkt transfers
+page as well (``transfermarkt_scraper.fetch_arrivals``), and those win when both
+exist - see ``build_dataset._fee_columns``.
+
 **This source is optional.** It is a one-off download rather than an API, so a
 clone of this repository will not have it, and the pipeline has to run without
 it - every player simply gets "fee unknown" and the model falls back on what it

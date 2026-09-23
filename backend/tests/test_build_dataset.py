@@ -15,6 +15,7 @@ def test_build_dataset_uses_fpl_club_list(monkeypatch, tmp_path):
                         lambda refresh=False: {"events": [], "teams": [{"name": "Spurs"}, {"name": "Man City"}]})
     monkeypatch.setattr(bd.fpl_client, "parse_players", lambda data: [])
     monkeypatch.setattr(bd.tm, "fetch_league_squads", lambda clubs: seen.extend(clubs) or [])
+    monkeypatch.setattr(bd.tm, "fetch_league_arrivals", lambda clubs, season: [])
     monkeypatch.setattr(bd, "PROCESSED_DATASET_PATH", tmp_path / "players.csv")
 
     with pytest.raises(KeyError):  # empty squad list -> no columns to drop on
@@ -102,6 +103,7 @@ def test_build_dataset_joins_stats_and_flags_unmatched(monkeypatch, tmp_path):
                                                "assists": 7, "xg": 25.5, "xa": 2.67}]},
                          "by_name": {}},
     )
+    monkeypatch.setattr(bd.tm, "fetch_league_arrivals", lambda clubs, season: [])
     monkeypatch.setattr(bd, "SEASONS", [2025])
     monkeypatch.setattr(bd, "PROCESSED_DATASET_PATH", tmp_path / "out" / "players.csv")
 
@@ -216,3 +218,35 @@ def test_recent_columns_are_zero_when_the_newest_season_was_missed():
 
 def test_recent_columns_handle_no_record_at_all():
     assert bd._recent_columns(None, 3420)["recent_minutes"] == 0
+
+
+def _kaggle_fee(name, age, fee, date):
+    return {bd.normalize_name(name): [{"player_id": 1, "age": age, "fee_eur": fee, "fee_date": date}]}
+
+
+def test_fee_columns_prefer_a_fee_paid_this_season():
+    """The Kaggle file is a snapshot: a summer signing made after it still
+    carries the fee from the move before."""
+    player = {"name": "Elliot Anderson", "club": "Man City", "age": 23}
+    arrivals = bd._index_arrivals([{"name": "Elliot Anderson", "club": "Man City", "season": 2026,
+                                    "fee_kind": "fee", "fee_eur": 135e6}])
+
+    assert bd._fee_columns(player, _kaggle_fee("Elliot Anderson", 23.8, 41.2e6, "2024-07-01"), arrivals) == {
+        "transfer_fee_eur": 135e6, "transfer_fee_date": "2026-07-01", "has_transfer_fee": 1}
+
+
+def test_fee_columns_keep_the_last_fee_after_a_move_that_paid_nothing():
+    player = {"name": "Omar Marmoush", "club": "Spurs", "age": 27}
+    kaggle = _kaggle_fee("Omar Marmoush", 27.5, 75e6, "2025-01-23")
+    for kind in ("loan", "free", "loan_return", "unknown"):
+        arrivals = bd._index_arrivals([{"name": "Omar Marmoush", "club": "Spurs", "season": 2026,
+                                        "fee_kind": kind, "fee_eur": None}])
+        assert bd._fee_columns(player, kaggle, arrivals)["transfer_fee_eur"] == 75e6
+
+
+def test_fee_columns_ignore_an_arrival_at_a_different_club():
+    player = {"name": "Omar Marmoush", "club": "Spurs", "age": 27}
+    arrivals = bd._index_arrivals([{"name": "Omar Marmoush", "club": "Man City", "season": 2026,
+                                    "fee_kind": "fee", "fee_eur": 1e6}])
+
+    assert bd._fee_columns(player, {}, arrivals)["has_transfer_fee"] == 0

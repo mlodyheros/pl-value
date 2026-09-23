@@ -176,3 +176,64 @@ def test_parse_contract_expiry(text, expected):
         assert result is None
     else:
         assert (result.year, result.month, result.day) == expected
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("€95.00m", ("fee", 95_000_000.0)),
+        ("€850k", ("fee", 850_000.0)),
+        ("free transfer", ("free", None)),
+        ("loan transfer", ("loan", None)),
+        ("Loan fee: €100k", ("loan", None)),
+        ("End of loan 30/06/2026", ("loan_return", None)),
+        ("-", ("unknown", None)),
+        ("?", ("unknown", None)),
+    ],
+)
+def test_parse_fee(text, expected):
+    assert tm.parse_fee(text) == expected
+
+
+def _transfer_row(name, position, age, fee):
+    return f"""
+    <tr>
+      <td></td>
+      <td><table class="inline-table">
+            <tr><td rowspan="2"><img/></td><td class="hauptlink"><a>{name}</a></td></tr>
+            <tr><td>{position}</td></tr>
+          </table></td>
+      <td class="zentriert">{age}</td>
+      <td class="zentriert"><img title="France"/></td>
+      <td><table class="inline-table"><tr><td class="hauptlink"><a>Lille</a></td></tr></table></td>
+      <td class="rechts hauptlink"><a>{fee}</a></td>
+    </tr>"""
+
+
+TRANSFERS_HTML = f"""
+<div class="box"><h2>Arrivals</h2><table class="items"><tbody>
+{_transfer_row("Ayyoub Bouaddi", "Defensive Midfield", 18, "€95.00m")}
+{_transfer_row("Vitor Reis", "Centre-Back", 20, "End of loan<br/><i>30/06/2026</i>")}
+<tr><td>too</td><td>short</td></tr>
+</tbody></table></div>
+<div class="box"><h2>Departures</h2><table class="items"><tbody>
+{_transfer_row("Rodri", "Defensive Midfield", 30, "€60.00m")}
+</tbody></table></div>
+"""
+
+
+def test_fetch_arrivals_reads_only_the_arrivals_table(monkeypatch):
+    monkeypatch.setattr(tm, "resolve_club_id", lambda name: {"slug": "manchester-city", "id": "281"})
+    monkeypatch.setattr(tm, "_get_html", lambda *a, **k: TRANSFERS_HTML)
+
+    assert tm.fetch_arrivals("Man City", 2026) == [
+        {"name": "Ayyoub Bouaddi", "age": 18, "club": "Man City", "season": 2026,
+         "fee_kind": "fee", "fee_eur": 95_000_000.0},
+        {"name": "Vitor Reis", "age": 20, "club": "Man City", "season": 2026,
+         "fee_kind": "loan_return", "fee_eur": None},
+    ]
+
+
+def test_fetch_arrivals_unresolved_club_returns_empty(monkeypatch):
+    monkeypatch.setattr(tm, "resolve_club_id", lambda name: None)
+    assert tm.fetch_arrivals("Nowhere FC", 2026) == []

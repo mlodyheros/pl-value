@@ -23,6 +23,9 @@ NUMERIC_FEATURES = [
     "idle_this_season",
     "idle_x_career",
     "idle_x_fee",
+    "youth_x_recent",
+    "older_x_career",
+    "years_since_fee",
 ]
 CATEGORICAL_FEATURES = ["position", "club"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -109,6 +112,25 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
       in 81% of them). Shrinking this season's minutes toward the career figure
       was tried first and does nothing at all: that is a linear blend of two
       features the model already has, so it can already express it.
+    - ``years_since_fee``: how long ago that fee was paid, as of the day the
+      dataset was built (0 when there is no fee). A fee from last summer is
+      close to what a player is worth now; one from 2020 has had six years for
+      the player to grow into or out of, and the model was reading both the
+      same way.
+    - ``youth_x_recent``: years short of 23, times last season's minutes share.
+      A teenager who was a regular in a top league last season is rare and
+      priced like it; without this, playing time counted the same at 18 as at
+      27, and Ayyoub Bouaddi (18, three quarters of Lille's minutes) was
+      valued like any other 18-year-old. With ``years_since_fee``: MAE
+      EUR6.66m -> EUR6.54m (9 standard errors over 100 paired folds) and
+      EUR13.9m -> EUR12.7m among the dearest tenth (12 standard errors).
+    - ``older_x_career``: years past 29, times career minutes share - the
+      decline after 29 is gentler for someone who has kept his place. It is
+      a trade-off, and taken knowingly: MAE EUR6.54m -> EUR6.48m (8 standard
+      errors), but EUR12.7m -> EUR12.9m among the dearest tenth (the age curve
+      refits, and young stars ease down 1-3%). It fixes the error a reader
+      flagged most emphatically: Bruno Fernandes EUR29.7m -> EUR35.9m against
+      a market EUR35m, Virgil van Dijk EUR8.9m -> EUR13.1m against EUR15m.
     """
     out = df.copy()
     out["age_squared"] = out["age"] ** 2
@@ -205,6 +227,19 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         out["idle_x_career"] = out["idle_this_season"] * out["career_minutes_share"]
     if "idle_x_fee" not in out:
         out["idle_x_fee"] = out["idle_this_season"] * out["log_transfer_fee"]
+
+    # The age curve bends differently for players who play: see the docstring.
+    young, old = AGE_KNOTS
+    if "youth_x_recent" not in out:
+        out["youth_x_recent"] = (young - out["age"]).clip(lower=0) * out["recent_minutes_share"]
+    if "older_x_career" not in out:
+        out["older_x_career"] = out[f"age_past_{old}"] * out["career_minutes_share"]
+    if "years_since_fee" not in out:
+        out["years_since_fee"] = (
+            pd.to_numeric(out["transfer_fee_years"], errors="coerce").fillna(0)
+            if "transfer_fee_years" in out
+            else 0.0
+        )
     return out
 
 

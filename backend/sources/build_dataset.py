@@ -172,8 +172,29 @@ def _recent_columns(records: list[dict] | None, season_minutes: int) -> dict:
     return {"recent_minutes": 0, "recent_available_minutes": season_minutes}
 
 
-def _fee_columns(player: dict, index: dict) -> dict:
-    """The most recent fee paid for this player, when we have that file."""
+def _index_arrivals(arrivals: list[dict]) -> dict:
+    """This season's arrivals, keyed the way squad players can find them."""
+    return {(a["club"], normalize_name(a["name"])): a for a in arrivals}
+
+
+def _fee_columns(player: dict, index: dict, arrivals: dict | None = None) -> dict:
+    """The most recent fee paid for this player.
+
+    A fee paid for them this season comes first. The Kaggle file is a snapshot,
+    so a player signed after it was taken is either missing from it or, worse,
+    carries the fee from the move before: Elliot Anderson joined City for
+    EUR135m while the model was still reading the EUR41m Forest paid in 2024,
+    and Ayyoub Bouaddi's EUR95m was not there at all. A loan, a free move or a
+    return from loan pays nothing new, so for those the last fee on file stands.
+    """
+    arrival = (arrivals or {}).get((player.get("club"), normalize_name(player["name"])))
+    if arrival is not None and arrival["fee_kind"] == "fee":
+        return {
+            "transfer_fee_eur": arrival["fee_eur"],
+            # The club's page gives the season, not the day.
+            "transfer_fee_date": f"{arrival['season']}-07-01",
+            "has_transfer_fee": 1,
+        }
     match = transfer_fees.lookup(index, player["name"], player.get("age"))
     if match is None:
         return {"transfer_fee_eur": None, "transfer_fee_date": None, "has_transfer_fee": 0}
@@ -216,6 +237,9 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
 
     squads = tm.fetch_league_squads(club_names)
     logger.info("Scraped %d players total from Transfermarkt", len(squads))
+    # The season being played now: the one after the last completed.
+    arrivals = _index_arrivals(tm.fetch_league_arrivals(club_names, max(SEASONS) + 1))
+    logger.info("Transfermarkt: %d arrivals this season", len(arrivals))
 
     fpl_by_full, fpl_by_web = _index_fpl_players(fpl_client.parse_players(fpl_data))
     pl_history = archive.build_index(SEASONS)
@@ -235,7 +259,7 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
                 **_fpl_columns(fpl_player, gameweeks),
                 **_history_columns(player["name"], player.get("position", ""), fpl_player, pl_history),
                 **_nonpl_columns(player, understat),
-                **_fee_columns(player, fees),
+                **_fee_columns(player, fees, arrivals),
             }
         )
     if fpl_unmatched:
@@ -247,6 +271,9 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
     df = df.dropna(subset=["market_value_eur", "age", "position"])
+    # How old each fee is on the day of this snapshot, like every other column.
+    fee_dates = pd.to_datetime(df["transfer_fee_date"], errors="coerce")
+    df["transfer_fee_years"] = ((pd.Timestamp.today().normalize() - fee_dates).dt.days / 365.25).round(2)
     PROCESSED_DATASET_PATH.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(PROCESSED_DATASET_PATH, index=False)
     logger.info("Wrote %d players to %s", len(df), PROCESSED_DATASET_PATH)

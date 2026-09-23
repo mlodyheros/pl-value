@@ -16,14 +16,17 @@ stats, and lets you compare the model's estimate against their actual value.
   squad has never played in the Premier League, and without this the model has
   nothing to go on for them.
 - **Market values** (the prediction target), plus each player's age, position
-  and nationality, are scraped from Transfermarkt's current squad pages.
+  and nationality, are scraped from Transfermarkt's current squad pages, and
+  this season's signings and the fees paid for them from each club's transfers
+  page.
 - A scikit-learn **linear regression** pipeline (on log-transformed value,
   since transfer values are heavily right-skewed) is trained on the merged
   dataset. Features: a bending age curve, this season's minutes share, the share
   of minutes played across past seasons and in the newest one alone, past-season
   goals+assists per 90 (from Premier League history where it exists, otherwise
-  from other big leagues), the last transfer fee paid, terms for a player who is
-  not featuring, data-coverage flags, position and club.
+  from other big leagues), the last transfer fee paid and how long ago, terms
+  for a player who is not featuring, terms for young and older regulars,
+  data-coverage flags, position and club.
 
 ## Layout
 
@@ -68,7 +71,7 @@ the experiment log behind the modelling choices (run the dataset build first).
 
 ## Current performance
 
-5-fold cross-validated on ~540 players: **R² ≈ 0.76** (on log value), **MAE ≈ €6.6m**.
+5-fold cross-validated on ~540 players: **R² ≈ 0.77** (on log value), **MAE ≈ €6.4m**.
 Trust the CV numbers over the single 80/20 split, which swings by ~0.1 R² between
 seeds at this dataset size.
 
@@ -84,9 +87,13 @@ seeds at this dataset size.
 | + the newest season on its own | 0.70 | €7.4m | €16.7m |
 | + what the club actually paid | 0.72 | €7.0m | €15.8m |
 | + "not playing" read properly | 0.75 | €6.7m | €14.9m |
-| + **an age curve that bends** | **0.76** | **€6.6m** | **€14.6m** |
+| + an age curve that bends | 0.76 | €6.6m | €14.6m |
+| *the same, rebuilt at gameweek 5* | *0.76* | *€6.7m* | *€14.7m* |
+| + this season's fees, from each club's page | 0.77 | €6.5m | €13.5m |
+| + young regulars, and how old the fee is | 0.77 | €6.5m | €12.4m |
+| + **older regulars** | **0.77** | **€6.4m** | **€12.5m** |
 
-Four findings worth keeping in mind:
+Findings worth keeping in mind:
 
 - **Playing time beats output.** How much a player plays, for which club, at what
   age explains most of the value. Past-season minutes was the single biggest gain.
@@ -121,6 +128,23 @@ Four findings worth keeping in mind:
   model to lean on history instead. A linear model cannot form a product of its
   own features, so it had to be built. Worth €0.24m of MAE over 100 paired
   folds, 7.5 standard errors.
+- **A snapshot goes stale.** The Kaggle file was taken in June, and about 150
+  players changed club after it — so the model was reading the fee from the move
+  *before*: €41m for Elliot Anderson (Forest, 2024) instead of the €135m City
+  paid, €9.4m for Morgan Rogers instead of €138m, and nothing at all for Ayyoub
+  Bouaddi's €95m. This season's fees now come from each club's own transfers page
+  (20 requests) and take precedence; how long ago a fee was paid counts too, since
+  one from last summer says more than one from 2020. Top-10% MAE €14.7m → €12.4m.
+- **The age curve bends differently for players who play.** A teenager who was a
+  regular last season is rare and priced like it, and after 29 the decline is
+  gentler for someone who has kept his place. Two products say so — (23−age)⁺ ×
+  last season's minutes, and (age−29)⁺ × career minutes. Bouaddi moved from €33m
+  to €72m against a market €80m (with his fee), Bruno Fernandes from €29.7m to
+  €35.9m against €35m. The second term is a trade-off, taken knowingly: it lowers
+  overall error (8 standard errors over 100 paired folds) but raises it slightly
+  among the dearest tenth (€12.4m → €12.5m), because the age curve refits and
+  young stars ease down 1–3%. It fixes the error the reader flagged most
+  emphatically.
 - **Minutes describe a player; a fee prices them.** Every feature above describes
   what happened on the pitch, which left the model blind to an expensive signing
   who has barely played — it asked €28m for Geovany Quenda against a market €42m.
@@ -140,19 +164,20 @@ the top 10%, at some cost in log-R².
 ### The fitted model
 
 ```
-log(1 + value) = 16.46
-   + 1.63·z(age) − 2.34·z(age²) + 0.17·z(age−23)⁺ − 0.18·z(age−29)⁺
-   + 0.15·z(minutes_share)                              this season
-   + 0.19·z(career_minutes_share) + 0.19·z(recent_minutes_share)
-   + 0.16·z(career_gi_per90)
-   + 0.49·z(log_transfer_fee) − 0.48·z(has_transfer_fee)
-   − 0.32·z(idle) + 0.13·z(idle × career) + 0.24·z(idle × fee)
-   + 0.04·z(has_fpl_record) + 0.04·z(has_hist_record) − 0.20·z(has_any_history)
+log(1 + value) = 16.50
+   + 1.50·z(age) − 1.95·z(age²) − 0.02·z(age−23)⁺ − 0.32·z(age−29)⁺
+   + 0.12·z(minutes_share)                              this season
+   + 0.15·z(career_minutes_share) + 0.18·z(recent_minutes_share)
+   + 0.18·z(career_gi_per90)
+   + 0.72·z(log_transfer_fee) − 0.71·z(has_transfer_fee) + 0.05·z(years_since_fee)
+   − 0.39·z(idle) + 0.11·z(idle × career) + 0.29·z(idle × fee)
+   + 0.05·z((23−age)⁺ × recent_minutes) + 0.11·z((age−29)⁺ × career_minutes)
+   + 0.03·z(has_fpl_record) + 0.10·z(has_hist_record) − 0.22·z(has_any_history)
    + position effect + club effect
 ```
 
-`z(x)` is the standardised feature. Club effects run from ×2.2 (Arsenal) to ×0.6
-(Hull City) against the baseline; goalkeepers sit ×0.68 against attacking
+`z(x)` is the standardised feature. Club effects run from ×1.9 (Arsenal) to ×0.6
+(Hull City) against the baseline; goalkeepers sit ×0.83 against attacking
 midfielders. The age term alone peaks at 21, earlier than the raw data's mid-20s,
 because the minutes features already carry most of what age would otherwise say.
 
@@ -182,7 +207,7 @@ Note this is a snapshot: the target is Transfermarkt's valuation *today*, and th
 dataset has no time dimension at all, so transfer-market inflation is already
 inside the numbers the model learns from rather than something it has to correct.
 
-The model still under-predicts the very top (top-10% predicted/actual ≈ 0.91) and
+The model still under-predicts the very top (top-10% predicted/actual ≈ 0.90) and
 players with no PL history - about a quarter of the squad, flagged by `has_hist_record`.
 
 Rejected as leakage, not as a weak feature: Transfermarkt's *peak* market value
@@ -278,10 +303,15 @@ edges of the project:
   come from the longest season any player in it played, rather than the fixture
   list, because league lengths differ (34 vs 38 matches) and this needs no
   hard-coding per competition.
-- **Transfer fees are an optional extra**: they come from a one-off Kaggle
-  download rather than an API, so a fresh clone of this repo will not have them.
-  The pipeline runs without it — every player is marked "fee unknown" and the
-  model falls back on playing history. See `backend/sources/transfer_fees.py`.
+- **Transfer fees are partly an optional extra**: fees before this season come
+  from a one-off Kaggle download rather than an API, so a fresh clone of this repo
+  will not have them. The pipeline runs without it — those players are marked
+  "fee unknown" and the model falls back on playing history. This season's fees
+  are scraped with the squads and are always there. See
+  `backend/sources/transfer_fees.py`.
+- **Cached pages do not expire**: Transfermarkt pages are cached for good, so a
+  rebuild in January still sees the summer's squads and signings. Delete
+  `data/raw/transfermarkt/squad_*.html` and `transfers_*.html` to refresh them.
 - **Partial coverage for new arrivals**: Understat fills in players arriving from
   the big five leagues, but not Portugal, the Championship, the Eredivisie or
   anywhere else - so 61 players (~11%, €771m of market value) still have no record

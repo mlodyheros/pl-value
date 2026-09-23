@@ -1,5 +1,6 @@
 """Scrapes current PL squads from Transfermarkt: position, age, nationality
-and current market value, one request per club.
+and current market value, one request per club - plus each club's arrivals for
+the season, with the fee paid, one more request per club.
 
 Transfermarkt has no official API and its `saison_id` filters on squad/value
 pages don't actually change the market value shown (verified by hand) - only
@@ -282,6 +283,83 @@ def fetch_squad(club_name: str) -> list[dict]:
             f"the wrong club. Add an entry to SEARCH_ALIASES."
         )
     return players
+
+
+def parse_fee(text: str) -> tuple[str, float | None]:
+    """Read the fee column of a club's transfers page.
+
+    Returns the kind of move and, for a paid transfer only, the amount:
+    '€95.00m' -> ("fee", 95_000_000.0), 'free transfer' -> ("free", None),
+    'loan transfer' or 'Loan fee: €100k' -> ("loan", None),
+    'End of loan 30/06/2026' -> ("loan_return", None), '-' or '?' -> ("unknown", None).
+    A loan fee is rent rather than a price, so it is not reported as one.
+    """
+    lowered = " ".join(text.split()).lower()
+    if lowered.startswith("end of loan"):
+        return "loan_return", None
+    if "loan" in lowered:
+        return "loan", None
+    if "free" in lowered:
+        return "free", None
+    amount = parse_market_value(text)
+    return ("fee", amount) if amount else ("unknown", None)
+
+
+def fetch_arrivals(club_name: str, season: int) -> list[dict]:
+    """Players a club brought in during one season, and what it paid for each.
+
+    ``season`` is the starting year, as in ``SEASONS``. ``club`` on each arrival
+    is labelled exactly as ``fetch_squad`` labels that club's players, so the
+    two join on (club, name).
+    """
+    club = resolve_club_id(club_name)
+    if club is None:
+        return []
+    label = club.get("name") or club_name
+
+    html = _get_html(
+        f"{TRANSFERMARKT_BASE_URL}/{club['slug']}/transfers/verein/{club['id']}/saison_id/{season}",
+        cache_name=f"transfers_{club['id']}_{season}",
+    )
+    soup = BeautifulSoup(html, "html.parser")
+    arrivals = []
+    for box in soup.find_all("div", class_="box"):
+        heading = box.find(["h2", "h3"])
+        table = box.find("table", class_="items")
+        if heading is None or table is None or not heading.get_text(strip=True).startswith("Arrivals"):
+            continue
+        for row in table.find("tbody").find_all("tr", recursive=False):
+            cells = row.find_all("td", recursive=False)
+            if len(cells) < 6:
+                continue
+            name_cell = cells[1].find("td", class_="hauptlink")
+            if name_cell is None:
+                continue
+            age_text = cells[2].get_text(strip=True)
+            kind, fee = parse_fee(cells[-1].get_text(" ", strip=True))
+            arrivals.append(
+                {
+                    "name": name_cell.get_text(strip=True),
+                    "age": int(age_text) if age_text.isdigit() else None,
+                    "club": label,
+                    "season": season,
+                    "fee_kind": kind,
+                    "fee_eur": fee,
+                }
+            )
+    if not arrivals:
+        logger.warning("No arrivals found for %r in %s", club_name, season)
+    return arrivals
+
+
+def fetch_league_arrivals(club_names: list[str], season: int) -> list[dict]:
+    """This season's arrivals, with fees, at every given club."""
+    arrivals = []
+    for club_name in club_names:
+        club_arrivals = fetch_arrivals(club_name, season)
+        logger.info("Fetched %d arrivals for %s", len(club_arrivals), club_name)
+        arrivals.extend(club_arrivals)
+    return arrivals
 
 
 def fetch_league_squads(club_names: list[str]) -> list[dict]:
