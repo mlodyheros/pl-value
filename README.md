@@ -245,7 +245,7 @@ The model still under-predicts the very top (top-10% predicted/actual ≈ 0.90) 
 players with no PL history - about a quarter of the squad, flagged by `has_hist_record`.
 
 The very top is the hardest place. Haaland, at €220m, is worth nearly twice anyone
-else in the league and the model asks about €170m (0.78): it pulls a lone extreme toward
+else in the league and the model asks about €180m (0.82): it pulls a lone extreme toward
 the rest. A premium for goals+assists per 90 above 0.5–0.7 does reach him — and
 overshoots to €255–268m while making the rest of the top tenth *worse*, so it is not
 used. Neither is weighting the stars more heavily, which moves him the wrong way.
@@ -356,7 +356,7 @@ edges of the project:
   misses) fills in players arriving from the big five leagues, but not Portugal,
   the Championship, the Eredivisie or anywhere else - so 56 players (~10%, €683m of
   market value) still have no record anywhere (`has_any_history` flags them). Their
-  median error is ~45% against ~26% for everyone else, in both directions. Kaggle
+  median error is ~45% against ~25% for everyone else, in both directions. Kaggle
   does hold those other leagues, but counted like the big five they made the model
   worse, and with a "weaker league" flag they were no better than leaving them out. This is the largest remaining gap, though
   closing it entirely would only move overall MAE by ~2%: these are mostly cheap
