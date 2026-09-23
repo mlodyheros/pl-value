@@ -26,6 +26,8 @@ NUMERIC_FEATURES = [
     "youth_x_recent",
     "older_x_career",
     "years_since_fee",
+    "backup_keeper",
+    "gi_x_career",
 ]
 CATEGORICAL_FEATURES = ["position", "club"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -33,6 +35,9 @@ TARGET = "market_value_eur"
 
 # One match's worth of minutes. Below this a player has effectively not featured.
 ONE_MATCH_MINUTES = 90
+
+# Below this share of available minutes a player has, for our purposes, not played.
+UNUSED_SHARE = 0.05
 
 # Knots for the age curve. A plain parabola is forced to be symmetric, and the
 # one this data fits peaks at 21 - too young, so it asks too much for teenagers
@@ -131,6 +136,19 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
       refits, and young stars ease down 1-3%). It fixes the error a reader
       flagged most emphatically: Bruno Fernandes EUR29.7m -> EUR35.9m against
       a market EUR35m, Virgil van Dijk EUR8.9m -> EUR13.1m against EUR15m.
+    - ``backup_keeper``: a goalkeeper who has played nowhere - this season, last
+      season or across his record - and cost nothing. Outfield, that record at
+      19 describes a prospect; in goal it describes a third choice, and the
+      market prices those at EUR50k-500k. Without it the model was asking
+      EUR8.4m for Liverpool's Harvey Davies (market EUR500k) and EUR5.5m for
+      Chelsea's Teddy Sharman-Lowe, because club and position were all it had.
+    - ``gi_x_career``: goals + assists per 90, times career minutes share. The
+      rate says how productive a player is and the share for how long, so
+      the product separates a regular who produces from a cameo that happened
+      to score. With ``backup_keeper``: MAE EUR6.48m -> EUR6.36m (10 standard
+      errors over 100 paired folds), EUR12.9m -> EUR12.4m among the dearest
+      tenth, and the median player under EUR1m goes from 4.4x the market to
+      2.5x.
     """
     out = df.copy()
     out["age_squared"] = out["age"] ** 2
@@ -234,6 +252,17 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         out["youth_x_recent"] = (young - out["age"]).clip(lower=0) * out["recent_minutes_share"]
     if "older_x_career" not in out:
         out["older_x_career"] = out[f"age_past_{old}"] * out["career_minutes_share"]
+    unused = (
+        (out["career_minutes_share"] < UNUSED_SHARE)
+        & (out["recent_minutes_share"] < UNUSED_SHARE)
+        & (out["minutes_share"] < UNUSED_SHARE)
+        & (out["has_transfer_fee"] == 0)
+    )
+    if "backup_keeper" not in out:
+        position = out["position"] if "position" in out else pd.Series("", index=out.index)
+        out["backup_keeper"] = (unused & (position == "Goalkeeper")).astype(float)
+    if "gi_x_career" not in out:
+        out["gi_x_career"] = out["career_gi_per90"] * out["career_minutes_share"]
     if "years_since_fee" not in out:
         out["years_since_fee"] = (
             pd.to_numeric(out["transfer_fee_years"], errors="coerce").fillna(0)

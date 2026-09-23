@@ -32,7 +32,8 @@ plainly whether the market falls inside it.
 - **Compare** — two players' ranges drawn on one shared scale.
 
 The verdict leads with whether the market falls inside the range, not with the
-raw percentage. The model shrinks its estimates toward the middle, so a bare
+raw percentage. When a club has just paid several times the market's figure for a
+player, the page says so: that valuation has usually not caught up with the fee yet. The model shrinks its estimates toward the middle, so a bare
 "18% below" would invite a reader to see a disagreement where there is none.
 
 ## Design notes

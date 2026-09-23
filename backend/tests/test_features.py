@@ -243,3 +243,30 @@ def test_idle_features_default_without_fpl_columns():
 
     assert (out["idle_this_season"] == 1.0).all()  # no minutes recorded at all
     assert (out["idle_x_fee"] == 0).all()          # ...and no fee to lean on
+
+
+def _played(position, career, recent, now, fee=0):
+    return {"position": position, "age": 26, "career_minutes_share": career,
+            "recent_minutes_share": recent, "minutes_share": now, "has_transfer_fee": fee,
+            "career_gi_per90": 0.5}
+
+
+def test_backup_keeper_marks_only_a_keeper_who_plays_nowhere_and_cost_nothing():
+    df = add_derived_features(pd.DataFrame([
+        _played("Goalkeeper", 0.0, 0.0, 0.0),            # third choice
+        _played("Goalkeeper", 0.9, 0.95, 1.0),           # the starter
+        _played("Goalkeeper", 0.0, 0.0, 0.0, fee=1),     # just bought: a signing, not a backup
+        _played("Goalkeeper", 0.0, 0.3, 0.0),            # played last season
+        _played("Centre-Back", 0.0, 0.0, 0.0),           # outfield: a prospect, not a backup
+    ]))
+
+    assert list(df["backup_keeper"]) == [1.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def test_gi_x_career_weighs_the_rate_by_how_much_was_played():
+    df = add_derived_features(pd.DataFrame([
+        _played("Centre-Forward", 0.9, 0.9, 0.9),
+        _played("Centre-Forward", 0.05, 0.05, 0.05),
+    ]))
+
+    assert df["gi_x_career"].tolist() == pytest.approx([0.45, 0.025])
