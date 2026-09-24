@@ -16,6 +16,7 @@ def _csv(tmp_path, season="2024-25", **overrides):
             "assists": [3, 0],
             "expected_goals": [21.9, 0.0],
             "expected_assists": [2.04, 0.0],
+            "bps": [792, 0],
             "element_type": [4, 2],
             **overrides,
         }
@@ -40,6 +41,7 @@ def test_get_season_players_reads_cache_without_network(monkeypatch, tmp_path):
     assert players[0] == {
         "code": 223094, "name": "erling haaland", "position": "F", "season": 2024,
         "minutes": 2736, "starts": 31, "goals": 22, "assists": 3, "xg": 21.9, "xa": 2.04,
+        "bps": 792,
     }
 
 
@@ -95,14 +97,14 @@ def test_build_index_keys_by_code_and_name(monkeypatch, tmp_path):
 
 def test_aggregate_sums_seasons():
     records = [
-        {"minutes": 2736, "starts": 31, "goals": 22, "assists": 3, "xg": 21.9, "xa": 2.0},
-        {"minutes": 2553, "starts": 29, "goals": 27, "assists": 5, "xg": 29.6, "xa": 2.2},
+        {"minutes": 2736, "starts": 31, "goals": 22, "assists": 3, "xg": 21.9, "xa": 2.0, "bps": 792},
+        {"minutes": 2553, "starts": 29, "goals": 27, "assists": 5, "xg": 29.6, "xa": 2.2, "bps": 810},
     ]
 
     assert archive.aggregate(records) == {
         "hist_minutes": 5289, "hist_starts": 60, "hist_goals": 49,
         "hist_assists": 8, "hist_xg": 51.5, "hist_seasons": 2,
-        "hist_xa": pytest.approx(4.2),
+        "hist_xa": pytest.approx(4.2), "hist_bps": 1602,
     }
 
 

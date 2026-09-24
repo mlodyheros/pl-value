@@ -29,6 +29,7 @@ NUMERIC_FEATURES = [
     "backup_keeper",
     "gi_x_career",
     "cl_matches_last",
+    "below_career",
 ]
 CATEGORICAL_FEATURES = ["position", "club"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -39,6 +40,8 @@ ONE_MATCH_MINUTES = 90
 
 # Below this share of available minutes a player has, for our purposes, not played.
 UNUSED_SHARE = 0.05
+# Five full matches: below this a per-90 rate is mostly noise.
+MIN_RATE_MINUTES = 450
 
 # Knots for the age curve. A plain parabola is forced to be symmetric, and the
 # one this data fits peaks at 21 - too young, so it asks too much for teenagers
@@ -162,6 +165,27 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
       Counting the Europa League too was no better, and three seasons of
       European minutes instead of one were worse at the top: last season's
       Champions League is the signal.
+    - ``below_career``: how far last season's share of minutes fell short of
+      the career share (0 when it did not). A season below a player's own
+      level is more often an interruption - an injury, a move - than a new
+      level, and the market reads it that way; without this the model read
+      Isak's injury-hit season (20% of minutes, career 53%) as a demotion.
+      Out of a reader's second round of labels: MAE EUR6.00m -> EUR5.96m (5.9
+      standard errors over 100 paired folds), the typical miss 31.6% ->
+      31.0%, and the flagged players' strength-weighted distance from the
+      market, in the direction flagged, 0.278 -> 0.272 (Isak 0.80 -> 0.85 of
+      his market value, Scott 0.72 -> 0.76, Bouaddi 0.90 -> 0.92).
+
+    ``career_bps_per90`` / ``recent_bps_per90`` - FPL's bonus points per 90, the
+    one quality measure here that covers every position - are computed for
+    exploration but are not model features, like ``starts_share``. They
+    improved the aggregate (MAE EUR5.92m, typical miss 29%), but they exist only
+    for players with a PL record, so a player arriving from abroad has no
+    quality score while everyone he is compared with does: Bouaddi fell from
+    0.92 of his market value to 0.78 and Barcola from 0.88 to 0.80, against a
+    reader who had flagged both as under-valued, and the labels test dropped
+    below its floor. A quality measure that covers every league would fix
+    that; this one cannot.
     """
     out = df.copy()
     out["age_squared"] = out["age"] ** 2
@@ -282,6 +306,22 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
             if "cl_minutes_last" in out
             else 0.0
         )
+    if "below_career" not in out:
+        out["below_career"] = (out["career_minutes_share"] - out["recent_minutes_share"]).clip(lower=0)
+    for rate, points, minutes in (
+        ("career_bps_per90", "hist_bps", "hist_minutes"),
+        ("recent_bps_per90", "recent_bps", "recent_minutes"),
+    ):
+        if rate in out:
+            continue
+        if points in out and minutes in out:
+            played = pd.to_numeric(out[minutes], errors="coerce").fillna(0)
+            scored = pd.to_numeric(out[points], errors="coerce").fillna(0)
+            out[rate] = np.where(
+                has_pl & (played >= MIN_RATE_MINUTES), scored / played.clip(lower=1) * 90, 0.0
+            )
+        else:
+            out[rate] = 0.0
     if "years_since_fee" not in out:
         out["years_since_fee"] = (
             pd.to_numeric(out["transfer_fee_years"], errors="coerce").fillna(0)
