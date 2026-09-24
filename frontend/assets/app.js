@@ -3,6 +3,7 @@
 
 const el = (id) => document.getElementById(id);
 const nodes = {
+  masthead: document.querySelector(".masthead"),
   query: el("q"),
   suggestions: el("suggestions"),
   board: el("board"),
@@ -11,10 +12,13 @@ const nodes = {
   overrated: el("overrated"),
   stat: el("masthead-stat"),
   tablesNote: el("tables-note"),
+  gapsAll: el("gaps-all"),
   gridNote: el("grid-note"),
+  gridHead: el("grid-head"),
   gridRows: el("grid-rows"),
   filterClub: el("filter-club"),
   filterPosition: el("filter-position"),
+  filterMin: el("filter-min"),
   sort: el("sort"),
   filterCount: el("filter-count"),
   viewGaps: el("view-gaps"),
@@ -30,11 +34,18 @@ const nodes = {
 // especially on a phone.
 const FIRST_PAGE = 60;
 let gridLimit = FIRST_PAGE;
+// Clicking the header of the column already sorted by turns its order round.
+let reversed = false;
 
 let everyone = [];
-let highlighted = -1;
 // Starting year of the season being played now; set from /api/meta.
 let thisSeason = null;
+const BASE_TITLE = document.title;
+
+// Where the reader was on the board when they opened a player, so coming back
+// lands on the same row rather than at the top of a 540-row list.
+let boardHash = "";
+let boardPlace = null;
 
 /* --- formatting -------------------------------------------------------- */
 
@@ -104,12 +115,16 @@ paintToggle();
 
 /* --- search ------------------------------------------------------------ */
 
-function matches(term) {
+const SEARCH_ICON = `<svg class="finder__icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+  stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>`;
+
+function matches(term, exclude = () => false) {
   const q = term.trim().toLowerCase();
   if (q.length < 2) return [];
   const starts = [];
   const contains = [];
   for (const p of everyone) {
+    if (exclude(p)) continue;
     const name = p.name.toLowerCase();
     if (name.startsWith(q)) starts.push(p);
     else if (
@@ -124,81 +139,134 @@ function matches(term) {
   return [...starts, ...contains].slice(0, 8);
 }
 
-function renderSuggestions(list, term) {
-  highlighted = -1;
-  nodes.suggestions.innerHTML = "";
-  nodes.query.setAttribute("aria-expanded", String(list.length > 0));
+/** One suggestion: who it is, and the two figures the reader is about to open. */
+function suggestionButton(player, id) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.id = id;
+  button.className = "suggestion";
+  button.setAttribute("role", "option");
+  button.setAttribute("aria-selected", "false");
+  button.setAttribute(
+    "aria-label",
+    `${player.name}, ${player.club}: market ${money(player.marketValueEur)}, model ${money(player.predictedEur)}`,
+  );
+  button.innerHTML = `
+    <span class="suggestion__name"></span>
+    <span class="suggestion__value"></span>
+    <span class="suggestion__meta"></span>
+    <span class="suggestion__gap"><span class="key key--${directionOf(player.gapPct)}"></span><span></span></span>`;
+  button.querySelector(".suggestion__name").textContent = player.name;
+  button.querySelector(".suggestion__meta").textContent = `${player.club} · ${player.position}`;
+  button.querySelector(".suggestion__value").textContent =
+    `${money(player.marketValueEur)} → ${money(player.predictedEur)}`;
+  button.querySelector(".suggestion__gap > span:last-child").textContent = signed(player.gapPct);
+  return button;
+}
 
-  // Silence reads as a broken box. Say why there is nothing to show.
-  if (!list.length) {
-    if (term.trim().length < 2) {
-      nodes.suggestions.hidden = true;
-      return;
+/**
+ * A search box with its list of matches: type two letters, arrow through them,
+ * Enter or a click picks one. The masthead's opens a player; the one on a
+ * player page picks someone to set beside them.
+ */
+function finder({ input, list, onPick, exclude }) {
+  const root = input.closest(".finder");
+  let highlighted = -1;
+  const options = () => [...list.querySelectorAll(".suggestion:not(.suggestion--empty)")];
+
+  function close() {
+    list.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+    highlighted = -1;
+  }
+
+  function render() {
+    const term = input.value;
+    const found = matches(term, exclude);
+    highlighted = -1;
+    list.innerHTML = "";
+    input.removeAttribute("aria-activedescendant");
+
+    // Silence reads as a broken box. Say why there is nothing to show.
+    if (!found.length) {
+      if (term.trim().length < 2) return close();
+      const empty = document.createElement("li");
+      empty.className = "suggestion suggestion--empty";
+      empty.textContent = "No player in this season’s squads matches that.";
+      list.appendChild(empty);
     }
-    const empty = document.createElement("li");
-    empty.className = "suggestion suggestion--empty";
-    empty.textContent = "No player in this season’s squads matches that.";
-    nodes.suggestions.appendChild(empty);
-    nodes.suggestions.hidden = false;
-    return;
+    found.forEach((player, index) => {
+      const item = document.createElement("li");
+      item.setAttribute("role", "presentation");
+      const button = suggestionButton(player, `${list.id}-${index}`);
+      button.addEventListener("click", () => {
+        close();
+        input.value = "";
+        input.blur();
+        onPick(player);
+      });
+      item.appendChild(button);
+      list.appendChild(item);
+    });
+    list.hidden = false;
+    input.setAttribute("aria-expanded", String(found.length > 0));
   }
 
-  for (const player of list) {
-    const item = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "suggestion";
-    button.setAttribute("role", "option");
-    button.setAttribute("aria-selected", "false");
-    button.innerHTML = `<span class="suggestion__name"></span><span class="suggestion__meta"></span><span class="suggestion__value"></span>`;
-    button.querySelector(".suggestion__name").textContent = player.name;
-    button.querySelector(".suggestion__meta").textContent = `${player.club} · ${player.position}`;
-    button.querySelector(".suggestion__value").textContent = money(player.marketValueEur);
-    button.addEventListener("click", () => open(player.id));
-    item.appendChild(button);
-    nodes.suggestions.appendChild(item);
+  function highlight(step) {
+    const all = options();
+    if (!all.length) return;
+    all[highlighted]?.setAttribute("aria-selected", "false");
+    highlighted = (highlighted + step + all.length) % all.length;
+    all[highlighted].setAttribute("aria-selected", "true");
+    all[highlighted].scrollIntoView({ block: "nearest" });
+    input.setAttribute("aria-activedescendant", all[highlighted].id);
   }
-  nodes.suggestions.hidden = false;
+
+  input.addEventListener("input", render);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      highlight(event.key === "ArrowDown" ? 1 : -1);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const all = options();
+      (all[highlighted] ?? all[0])?.click();
+    } else if (event.key === "Escape") {
+      // A second Escape, with nothing left to close, lets go of the box.
+      if (list.hidden) input.blur();
+      close();
+    }
+  });
+
+  return { root, close };
 }
 
-const suggestionButtons = () => [
-  ...nodes.suggestions.querySelectorAll(".suggestion:not(.suggestion--empty)"),
-];
-
-function highlight(step) {
-  const options = suggestionButtons();
-  if (!options.length) return;
-  options[highlighted]?.setAttribute("aria-selected", "false");
-  highlighted = (highlighted + step + options.length) % options.length;
-  options[highlighted].setAttribute("aria-selected", "true");
-  options[highlighted].scrollIntoView({ block: "nearest" });
+/** Every way into a player goes through the address, so Back always works. */
+function go(id) {
+  if (location.hash === `#p${id}`) open(id);
+  else location.hash = `p${id}`;
 }
 
-function closeSuggestions() {
-  nodes.suggestions.hidden = true;
-  nodes.query.setAttribute("aria-expanded", "false");
-  highlighted = -1;
-}
+// The masthead's search, and whichever one the current page carries.
+const finders = {
+  main: finder({ input: nodes.query, list: nodes.suggestions, onPick: (player) => go(player.id) }),
+  page: null,
+};
 
-nodes.query.addEventListener("input", () =>
-  renderSuggestions(matches(nodes.query.value), nodes.query.value),
-);
-
-nodes.query.addEventListener("keydown", (event) => {
-  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-    event.preventDefault();
-    highlight(event.key === "ArrowDown" ? 1 : -1);
-  } else if (event.key === "Enter") {
-    event.preventDefault();
-    const options = suggestionButtons();
-    (options[highlighted] ?? options[0])?.click();
-  } else if (event.key === "Escape") {
-    closeSuggestions();
+document.addEventListener("click", (event) => {
+  for (const f of Object.values(finders)) {
+    if (f && !f.root.contains(event.target)) f.close();
   }
 });
 
-document.addEventListener("click", (event) => {
-  if (!event.target.closest(".finder")) closeSuggestions();
+// "/" jumps to the search from anywhere that is not already taking text.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.target.closest?.("input, textarea, select, [contenteditable]")) return;
+  event.preventDefault();
+  nodes.query.focus();
+  nodes.query.select();
 });
 
 /* --- the valuation ----------------------------------------------------- */
@@ -569,13 +637,46 @@ function showBoard() {
   nodes.board.hidden = false;
   nodes.player.innerHTML = "";
   nodes.compare.innerHTML = "";
+  finders.page = null;
+  document.title = BASE_TITLE;
+}
+
+/** Remember the board's place before a player page replaces it. */
+function leaveBoard(openedId) {
+  if (!nodes.board.hidden) {
+    boardPlace = { hash: boardHash, scrollY: window.scrollY, gridLimit, openedId };
+  }
+}
+
+/** A search box on the page itself, for the player to set beside this one. */
+function pickerMarkup(label) {
+  return `
+    <div class="picker">
+      <label class="picker__label" for="compare-with">${label}</label>
+      <search class="finder">
+        ${SEARCH_ICON}
+        <input id="compare-with" class="finder__input" type="search" placeholder="Another player’s name"
+               autocomplete="off" role="combobox" aria-expanded="false" aria-controls="compare-suggestions"
+               aria-autocomplete="list">
+        <ul id="compare-suggestions" class="suggestions" role="listbox" aria-label="Players to compare with" hidden></ul>
+      </search>
+    </div>`;
+}
+
+function wirePicker(root, excluded, onPick) {
+  finders.page = finder({
+    input: root.querySelector("#compare-with"),
+    list: root.querySelector("#compare-suggestions"),
+    exclude: (p) => excluded.includes(p.id),
+    onPick,
+  });
 }
 
 async function open(id) {
-  closeSuggestions();
+  leaveBoard(id);
+  finders.main.close();
   Tip.hide();
   nodes.query.value = "";
-  if (location.hash !== `#p${id}`) location.hash = `p${id}`;
 
   let player;
   try {
@@ -583,34 +684,33 @@ async function open(id) {
   } catch {
     nodes.player.innerHTML = `<p class="notice">Couldn’t load that player. The model server may have stopped.</p>`;
     nodes.board.hidden = true;
+    nodes.compare.hidden = true;
     nodes.player.hidden = false;
     return;
   }
 
   const peers = everyone.filter((p) => p.position === player.position);
   const rank = peers.filter((p) => p.marketValueEur > player.marketValueEur).length + 1;
-  const cameFrom = nodes.viewAll.hidden ? "Where it disagrees" : "All players";
+  const backTo = boardPlace?.hash ?? "";
+  const cameFrom = backTo.startsWith("all") ? "All players" : "Where it disagrees";
 
   nodes.player.innerHTML = `
     <button class="back" type="button">← ${cameFrom}</button>
     <header class="player__head">
-      <h1 class="player__name">${esc(player.name)}</h1>
-      <ul class="player__meta" aria-label="Profile">${metaChips(player)}</ul>
+      <div class="player__id">
+        <h1 class="player__name">${esc(player.name)}</h1>
+        <ul class="player__meta" aria-label="Profile">${metaChips(player)}</ul>
+      </div>
+      ${pickerMarkup(`Compare ${esc(surnameOf(player.name))} with`)}
     </header>
     ${statTiles(player, rank)}
     ${valuationChart(player)}
-    ${feeCard(player)}
     ${verdict(player)}
+    ${feeCard(player)}
     <div class="panels">
       ${seasonsPanel(player)}
       ${peersPanel(player)}
       ${evidencePanel(player)}
-    </div>
-    <div class="card picker">
-      <label class="picker__label" for="compare-with">Put ${esc(surnameOf(player.name))} next to</label>
-      <input id="compare-with" list="compare-options" placeholder="another player’s name">
-      <datalist id="compare-options"></datalist>
-      <span class="picker__hint">Both ranges on one scale.</span>
     </div>`;
 
   const strip = nodes.player.querySelector("#peer-strip");
@@ -625,10 +725,13 @@ async function open(id) {
   }
 
   nodes.player.querySelector(".back").addEventListener("click", () => {
-    location.hash = nodes.viewAll.hidden ? "" : gridHash();
+    location.hash = backTo;
   });
-  wirePicker(nodes.player, player.id);
+  wirePicker(nodes.player, [player.id], (other) => {
+    location.hash = `c${player.id},${other.id}`;
+  });
 
+  document.title = `${player.name} — PL Value`;
   nodes.board.hidden = true;
   nodes.compare.hidden = true;
   nodes.player.hidden = false;
@@ -636,26 +739,6 @@ async function open(id) {
 }
 
 /* --- compare ----------------------------------------------------------- */
-
-/** A second player, chosen by name, opens the two-up view. */
-function wirePicker(root, currentId) {
-  const input = root.querySelector(".picker input");
-  const list = root.querySelector(".picker datalist");
-  if (!input) return;
-
-  for (const player of everyone) {
-    if (player.id === currentId) continue;
-    const option = document.createElement("option");
-    option.value = `${player.name} — ${player.club}`;
-    option.dataset.id = String(player.id);
-    list.appendChild(option);
-  }
-
-  input.addEventListener("change", () => {
-    const chosen = [...list.options].find((option) => option.value === input.value);
-    if (chosen) location.hash = `c${currentId},${chosen.dataset.id}`;
-  });
-}
 
 function compareRow(player, scale) {
   const direction = directionOf(player.gapPct);
@@ -679,8 +762,60 @@ function compareRow(player, scale) {
     </div>`;
 }
 
+/** The figures behind both charts, row by row, so none has to be read off a scale. */
+function sideBySide(pair) {
+  const level = Math.round(pair[0].confidence.level * 100);
+  const record = (r) =>
+    r.known ? `${count(r.seasons, "season")} · ${minutesLabel(r.minutes)} · ${r.goals}G ${r.assists}A` : null;
+  const rows = [
+    ["Model estimate", (p) => money(p.predictedEur)],
+    ["Market value", (p) => money(p.marketValueEur)],
+    ["Model vs market", (p) => signed(p.gapPct)],
+    [`${level}% range`, (p) => (p.range ? `${money(p.range.lowEur)} – ${money(p.range.highEur)}` : null)],
+    ["Likely fee from a PL club", (p) => (p.feeEstimate ? money(p.feeEstimate.premierLeagueEur) : null)],
+    ["Age", (p) => String(p.age)],
+    [
+      "This season",
+      (p) => {
+        const now = p.evidence.thisSeason;
+        return now.known ? `${minutesLabel(now.minutes)} · ${count(now.starts, "start")}` : null;
+      },
+    ],
+    ["Premier League record", (p) => record(p.evidence.premierLeague)],
+    ["Other leagues", (p) => record(p.evidence.otherLeagues)],
+  ];
+
+  const body = rows
+    .map(([label, read]) => [label, pair.map(read)])
+    // A row neither player has anything in says nothing.
+    .filter(([, values]) => values.some((value) => value !== null))
+    .map(
+      ([label, values]) => `
+        <tr>
+          <th scope="row">${label}</th>
+          ${values.map((value) => (value === null ? `<td class="duel__absent">—</td>` : `<td>${esc(value)}</td>`)).join("")}
+        </tr>`,
+    )
+    .join("");
+
+  return `
+    <section class="card panel duel-card">
+      <h2 class="panel__title">Side by side</h2>
+      <table class="duel">
+        <thead>
+          <tr>
+            <td></td>
+            ${pair.map((p) => `<th scope="col">${esc(p.name)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </section>`;
+}
+
 async function compare(leftId, rightId) {
-  closeSuggestions();
+  leaveBoard(leftId);
+  finders.main.close();
   Tip.hide();
   let pair;
   try {
@@ -700,20 +835,30 @@ async function compare(leftId, rightId) {
 
   nodes.compare.innerHTML = `
     <button class="back" type="button">← ${esc(pair[0].name)}</button>
-    <h1 class="compare__title">${esc(pair[0].name)} and ${esc(pair[1].name)}</h1>
-    <p class="compare__lead">Both on one scale, so each range can be read against the other.</p>
+    <header class="compare__head">
+      <div>
+        <h1 class="compare__title">${esc(pair[0].name)} and ${esc(pair[1].name)}</h1>
+        <p class="compare__lead">Both on one scale, so each range can be read against the other.</p>
+      </div>
+      ${pickerMarkup(`Put ${esc(surnameOf(pair[0].name))} next to someone else`)}
+    </header>
     <section class="card compare__card">
       <header class="chart__head">
         <h2 class="chart__title">What the model allows</h2>
         ${Charts.rangeLegend(pair[0].confidence.level, pair.some((p) => p.range))}
       </header>
       ${pair.map((p) => compareRow(p, scale)).join("")}
-    </section>`;
+    </section>
+    ${sideBySide(pair)}`;
 
   nodes.compare.querySelector(".back").addEventListener("click", () => {
     location.hash = `p${leftId}`;
   });
+  wirePicker(nodes.compare, [leftId, rightId], (other) => {
+    location.hash = `c${leftId},${other.id}`;
+  });
 
+  document.title = `${pair[0].name} and ${pair[1].name} — PL Value`;
   nodes.board.hidden = true;
   nodes.player.hidden = true;
   nodes.compare.hidden = false;
@@ -730,16 +875,23 @@ function rankList(target, players, largest) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "rank";
+    button.dataset.id = String(player.id);
+    // The figures are what the row is for, so on a narrow screen the club's
+    // name gives way before they do.
     button.innerHTML = `
       <span class="rank__pos">${String(index + 1).padStart(2, "0")}</span>
-      <span><span class="rank__name"></span><span class="rank__club"></span></span>
+      <span class="rank__who">
+        <span class="rank__name"></span>
+        <span class="rank__club"><span class="rank__clubname"></span><span class="rank__figs"></span></span>
+      </span>
       ${Charts.gapBar(player.gapPct, largest)}
       <span class="rank__gap"></span>`;
     button.querySelector(".rank__name").textContent = player.name;
-    button.querySelector(".rank__club").textContent =
-      `${player.club} · ${money(player.marketValueEur)} → ${money(player.predictedEur)}`;
+    button.querySelector(".rank__clubname").textContent = player.club;
+    button.querySelector(".rank__figs").textContent =
+      `${money(player.marketValueEur)} → ${money(player.predictedEur)}`;
     button.querySelector(".rank__gap").textContent = signed(player.gapPct);
-    button.addEventListener("click", () => open(player.id));
+    button.addEventListener("click", () => go(player.id));
     item.appendChild(button);
     target.appendChild(item);
   });
@@ -752,6 +904,21 @@ const sorters = {
   name: (a, b) => a.name.localeCompare(b.name),
 };
 
+function sortRows(rows) {
+  const by = sorters[nodes.sort.value];
+  return rows.sort(reversed ? (a, b) => by(b, a) : by);
+}
+
+/** The header says which column the list is sorted by, and which way. */
+function paintSortHeads() {
+  for (const head of nodes.gridHead.querySelectorAll("[data-sort]")) {
+    const active = head.dataset.sort === nodes.sort.value;
+    // Names run A to Z; every figure runs largest first.
+    const ascending = (head.dataset.sort === "name") !== reversed;
+    head.setAttribute("aria-sort", active ? (ascending ? "ascending" : "descending") : "none");
+  }
+}
+
 // Where the table's diverging bars saturate. The asking-less side cannot pass
 // -100%, so this keeps both halves on the same footing.
 const GAP_BAR_CAP = 100;
@@ -759,16 +926,20 @@ const GAP_BAR_CAP = 100;
 function renderGrid() {
   const club = nodes.filterClub.value;
   const position = nodes.filterPosition.value;
-  const rows = everyone
-    .filter((p) => (!club || p.club === club) && (!position || p.position === position))
-    .sort(sorters[nodes.sort.value]);
+  const floor = Number(nodes.filterMin.value || 0) * 1e6;
+  const rows = sortRows(
+    everyone.filter(
+      (p) => (!club || p.club === club) && (!position || p.position === position) && p.marketValueEur >= floor,
+    ),
+  );
 
+  paintSortHeads();
   nodes.filterCount.textContent = `${rows.length} of ${everyone.length}`;
   nodes.gridRows.innerHTML = "";
 
   if (!rows.length) {
     nodes.showAll.hidden = true;
-    nodes.gridRows.innerHTML = `<p class="panel__empty">No player matches both filters. Widen one of them.</p>`;
+    nodes.gridRows.innerHTML = `<p class="panel__empty">No player matches these filters. Widen one of them.</p>`;
     return;
   }
 
@@ -782,6 +953,7 @@ function renderGrid() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "grid__row";
+    button.dataset.id = String(player.id);
     button.setAttribute("role", "row");
     button.innerHTML = `
       <span role="cell"><span class="grid__name"></span><span class="grid__meta"></span></span>
@@ -795,7 +967,7 @@ function renderGrid() {
     figures[0].textContent = money(player.marketValueEur);
     figures[1].textContent = money(player.predictedEur);
     button.querySelector(".grid__gap").textContent = signed(player.gapPct);
-    button.addEventListener("click", () => open(player.id));
+    button.addEventListener("click", () => go(player.id));
     fragment.appendChild(button);
   }
   nodes.gridRows.appendChild(fragment);
@@ -805,7 +977,9 @@ function gridHash() {
   const params = new URLSearchParams();
   if (nodes.filterClub.value) params.set("club", nodes.filterClub.value);
   if (nodes.filterPosition.value) params.set("position", nodes.filterPosition.value);
+  if (nodes.filterMin.value) params.set("min", nodes.filterMin.value);
   if (nodes.sort.value !== "value") params.set("sort", nodes.sort.value);
+  if (reversed) params.set("order", "reverse");
   const query = params.toString();
   return query ? `all?${query}` : "all";
 }
@@ -814,17 +988,21 @@ function applyGridHash(query) {
   const params = new URLSearchParams(query);
   nodes.filterClub.value = params.get("club") ?? "";
   nodes.filterPosition.value = params.get("position") ?? "";
+  nodes.filterMin.value = params.get("min") ?? "";
   nodes.sort.value = params.get("sort") ?? "value";
+  // A hand-edited address can name a sort that does not exist.
+  if (!nodes.sort.value) nodes.sort.value = "value";
+  reversed = params.get("order") === "reverse";
 }
 
-function switchView(view, { push = true } = {}) {
+function switchView(view, { push = true, limit = FIRST_PAGE } = {}) {
   for (const button of document.querySelectorAll(".view")) {
     button.setAttribute("aria-pressed", String(button.dataset.view === view));
   }
   nodes.viewGaps.hidden = view !== "gaps";
   nodes.viewAll.hidden = view !== "all";
   if (view === "all") {
-    gridLimit = FIRST_PAGE;
+    gridLimit = limit;
     renderGrid();
   }
   if (push) location.hash = view === "all" ? gridHash() : "";
@@ -839,14 +1017,44 @@ function route() {
   const pair = hash.match(/^c(\d+),(\d+)$/);
   if (pair) return compare(Number(pair[1]), Number(pair[2]));
 
+  // Back on the very list a player was opened from: same rows, same place.
+  const place = boardPlace?.hash === hash ? boardPlace : null;
+  boardPlace = null;
+  boardHash = hash;
+  const wasShowing = !nodes.board.hidden && (nodes.viewAll.hidden ? "gaps" : "all");
+
   showBoard();
   const grid = hash.match(/^all(?:\?(.*))?$/);
   if (grid) {
     applyGridHash(grid[1] ?? "");
-    switchView("all", { push: false });
+    switchView("all", { push: false, limit: place?.gridLimit ?? FIRST_PAGE });
   } else {
     switchView("gaps", { push: false });
   }
+
+  if (place) {
+    window.scrollTo({ top: place.scrollY, behavior: "instant" });
+    markRecent(place.openedId);
+  } else if (!wasShowing) {
+    // From a player page any other way: the start of the board, or of the table.
+    if (nodes.viewAll.hidden) window.scrollTo({ top: 0, behavior: "instant" });
+    else document.querySelector(".views").scrollIntoView({ block: "start" });
+  } else if (wasShowing !== (nodes.viewAll.hidden ? "gaps" : "all")) {
+    // A switch of view clicked from far down the page starts the new one at its top.
+    const views = document.querySelector(".views");
+    if (views.getBoundingClientRect().top < nodes.masthead.offsetHeight) views.scrollIntoView({ block: "start" });
+  }
+}
+
+/** A brief wash over the row just come back from, so the eye finds its place. */
+function markRecent(id) {
+  const view = nodes.viewAll.hidden ? nodes.viewGaps : nodes.viewAll;
+  const row = view.querySelector(`[data-id="${id}"]`);
+  if (!row) return;
+  // Keyboard users carry on from the same row too.
+  row.focus({ preventScroll: true });
+  row.classList.add("is-recent");
+  row.addEventListener("animationend", () => row.classList.remove("is-recent"), { once: true });
 }
 
 /* --- start ------------------------------------------------------------- */
@@ -864,6 +1072,14 @@ function route() {
     nodes.stat.textContent = `${meta.players} players · ${meta.clubs} clubs`;
     nodes.tablesNote.textContent =
       `Players under ${money(ranks.minValueEur)} are left out here: a percentage gap on a cheap squad player is mostly noise.`;
+    // The full list, cut at the same floor as the two lists above it: a
+    // percentage gap on a cheap squad player is mostly noise there too.
+    const floor = String(ranks.minValueEur / 1e6);
+    if (![...nodes.filterMin.options].some((option) => option.value === floor)) {
+      nodes.filterMin.add(new Option(`${money(ranks.minValueEur)} or more`, floor));
+    }
+    nodes.gapsAll.href = `#all?min=${floor}&sort=gap`;
+    nodes.gapsAll.textContent = `Every player worth ${money(ranks.minValueEur)} or more, biggest gaps first →`;
     nodes.gridNote.textContent =
       "The model shrinks its estimates toward the middle, so it tends to ask less than the market for the most expensive players and more for the cheapest. Read a gap against that, and open a player to see the range.";
     nodes.colophon.textContent =
@@ -880,13 +1096,33 @@ function route() {
     for (const button of document.querySelectorAll(".view")) {
       button.addEventListener("click", () => switchView(button.dataset.view));
     }
-    for (const control of [nodes.filterClub, nodes.filterPosition, nodes.sort]) {
+    // Every change goes through the address, so Back steps through them and
+    // route() does the drawing.
+    for (const control of [nodes.filterClub, nodes.filterPosition, nodes.filterMin, nodes.sort]) {
       control.addEventListener("change", () => {
-        gridLimit = FIRST_PAGE;
+        if (control === nodes.sort) reversed = false;
         location.hash = gridHash();
-        renderGrid();
       });
     }
+    for (const head of nodes.gridHead.querySelectorAll("[data-sort]")) {
+      head.querySelector(".sorter").addEventListener("click", () => {
+        if (nodes.sort.value === head.dataset.sort) {
+          reversed = !reversed;
+        } else {
+          nodes.sort.value = head.dataset.sort;
+          reversed = false;
+        }
+        location.hash = gridHash();
+        // Sorted from a header stuck halfway down: start the new order at its top.
+        const table = nodes.gridHead.closest(".grid");
+        if (table.getBoundingClientRect().top < nodes.masthead.offsetHeight) table.scrollIntoView({ block: "start" });
+      });
+    }
+
+    // The table's header sticks just under the masthead, which grows when it wraps.
+    new ResizeObserver(() => {
+      document.documentElement.style.setProperty("--masthead-h", `${nodes.masthead.offsetHeight}px`);
+    }).observe(nodes.masthead);
     nodes.showAll.addEventListener("click", () => {
       gridLimit = Infinity;
       renderGrid();
