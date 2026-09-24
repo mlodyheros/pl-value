@@ -43,24 +43,38 @@ player, the page says so: that valuation has usually not caught up with the fee 
 
 ## Design notes
 
+- **A matchday, not a dashboard.** The page is the terrace - a cool concrete
+  grey - and every view opens on a **scoreboard**: a dark housing with
+  dot-matrix lamps. A valuation here is a contest between the model and the
+  market, so it is announced the way a ground announces a score: the board
+  shows the two widest disagreements, a player's model / market / gap / rank,
+  and a comparison as a score line ("HAALAND €187m – €69.5m ISAK"). The lamps
+  flicker on once when a board appears; nothing else on the page moves except
+  the range sweeping in.
+- **The scoreboard is the one loud thing.** Everything around it stays quiet:
+  chalk panels for the charts, names and headings in Big Shoulders Display (the
+  condensed capitals of stadium signage), reading text in Schibsted Grotesk,
+  club codes in the three letters of a TV score bug, labels and axes in IBM
+  Plex Mono. Doto, the dot-matrix face, appears on the scoreboard and nowhere
+  else.
 - **Light and dark.** The page follows the system setting; the button in the
-  masthead overrides it and remembers the choice. Dark mode has its own
-  colour steps, checked against the dark surface, not an inverted light theme.
+  masthead overrides it and remembers the choice. Dark mode has its own colour
+  steps, checked against the dark surface, not an inverted light theme.
 - **Every colour has one job.** Green is the model, ink is the market, and
-  orange / blue say whether the model asks more or less. The pairs were checked
-  for colour-blind separation, and green and orange are never put in the same
-  chart because they are too close under protanopia. Colour marks the bars
-  and dots only; numbers and labels stay in text colours.
+  orange / blue say whether the model asks more or less. On the scoreboard the
+  same roles light up - model in green lamps, market in white. The pairs were
+  checked for colour-blind separation, and green and orange are never put in
+  the same chart because they are too close under protanopia. Colour marks the
+  bars and dots only; numbers and labels stay in text colours.
 - **Scales are honest.** Money axes start at zero; the peer strip uses a log
   axis because one position spans three orders of magnitude; minutes are drawn
   against a full 38-game season, so a bar means the same length on every page.
 - **Nothing is hover-only.** Charts have tooltips on hover and keyboard focus,
-  but every value is also printed: as a direct label, a stat tile, or a row in
-  the table (the peer strip links to that position in the table).
-- Bricolage Grotesque sets names and headlines. Public Sans sets the text and
-  the big numbers; IBM Plex Mono is used where figures must line up in columns.
+  but every value is also printed: on the scoreboard, as a direct label, or as
+  a row in the table (the peer strip links to that position in the table).
 - Keyboard: `↑`/`↓` move through search results, `Enter` opens, `Esc` closes.
-  Focus is always visible, and `prefers-reduced-motion` is respected.
-- Every colour used for text clears WCAG AA (4.5:1) in both themes, and chart
-  marks clear 3:1. Each chart also has a sentence with the same figures for
-  screen readers.
+  Focus is always visible, and `prefers-reduced-motion` switches the lamps and
+  the chart straight on.
+- Every colour used for text clears WCAG AA (4.5:1) in both themes, the lamps
+  7:1 on the board, and chart marks 3:1. Each chart also has a sentence with the
+  same figures for screen readers, and club codes carry the full club name.

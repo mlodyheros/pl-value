@@ -53,6 +53,11 @@ def team_names(data: dict) -> list[str]:
     return [team["name"] for team in data.get("teams", [])]
 
 
+def team_codes(data: dict) -> dict[str, str]:
+    """Club name -> the three-letter code of TV graphics ('Man City' -> 'MCI')."""
+    return {team["name"]: team.get("short_name", "") for team in data.get("teams", [])}
+
+
 def finished_gameweeks(data: dict) -> int:
     return sum(1 for event in data.get("events", []) if event.get("finished"))
 

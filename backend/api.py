@@ -160,6 +160,12 @@ def _peers(row: pd.Series, df: pd.DataFrame) -> dict:
     }
 
 
+def _club_code(row: pd.Series) -> str:
+    """Three letters, as on a TV score bug; the first three of the name if unknown."""
+    code = row.get("club_code")
+    return code if isinstance(code, str) and code else str(row.club)[:3].upper()
+
+
 def _fee_estimate(row: pd.Series, fee_calibration: dict | None) -> dict | None:
     """What a club would likely pay: to a PL club and abroad, with the spread."""
     if fee_calibration is None or pd.isna(row.get("fee_pl_eur")):
@@ -190,6 +196,7 @@ def _player_payload(
         "id": int(row.name),
         "name": row["name"],
         "club": row.club,
+        "clubCode": _club_code(row),
         "position": row.position,
         "age": int(row.age),
         "nationality": row.nationality,
@@ -271,6 +278,7 @@ def list_players() -> list[dict]:
             "id": int(i),
             "name": r["name"],
             "club": r.club,
+            "clubCode": _club_code(r),
             "position": r.position,
             "age": int(r.age),
             "nationality": r.nationality,
@@ -310,6 +318,7 @@ def rankings(limit: int = 10, min_value_eur: float = 15_000_000) -> dict:
                 "id": int(i),
                 "name": r["name"],
                 "club": r.club,
+                "clubCode": _club_code(r),
                 "position": r.position,
                 "marketValueEur": float(r.market_value_eur),
                 "predictedEur": float(r.predicted_eur),

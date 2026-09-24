@@ -6,7 +6,7 @@
 <title>PL Value — what a player is worth, and how sure we are</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800;900&family=Doto:wght@800;900&family=IBM+Plex+Mono:wght@400;500;600&family=Schibsted+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/styles.css">
 <script>
   try {
@@ -19,7 +19,7 @@
 
 <header class="masthead">
   <a class="mark" href="#" aria-label="PL Value, home">
-    <span class="mark__badge">PL</span><span class="mark__word">Value</span>
+    <span class="mark__led" aria-hidden="true">PL</span><span class="mark__word">Value</span>
   </a>
 
   <search class="finder">
@@ -39,13 +39,17 @@
 
   <!-- board: the two disagreement tables + the full squad list -->
   <section class="board" id="board">
-    <div class="lede">
-      <h1>Every valuation<br>is a range.</h1>
-      <p class="lede__body">
-        The model values a Premier League player from how much they play, what
-        they score, their age, position and club. It reports the range it has
-        earned — not a single number it cannot support.
-      </p>
+    <div class="hero">
+      <div class="hero__copy">
+        <p class="hero__season" id="hero-season">Premier League</p>
+        <h1 class="hero__title">Every valuation is a range.</h1>
+        <p class="hero__body">
+          A model prices every Premier League player from how much they play,
+          how involved they are, what a club paid and how old they are — then
+          reports the range it has earned, next to the market’s single figure.
+        </p>
+      </div>
+      <aside class="scoreboard hero__board" id="hero-board" aria-label="Biggest disagreements between the model and the market"></aside>
     </div>
 
     <nav class="views" aria-label="Views">
