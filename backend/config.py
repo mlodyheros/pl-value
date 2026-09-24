@@ -29,6 +29,10 @@ TRANSFERMARKT_HEADERS = {
 
 # Be polite to Transfermarkt between page requests
 TRANSFERMARKT_DELAY_SECONDS = 2.5
+# Squad and transfer pages are refetched once they are a week old: Transfermarkt
+# revalues players every few weeks, and a squad changes in the windows. Club
+# search pages never go stale and are kept for good.
+TRANSFERMARKT_PAGE_MAX_AGE_HOURS = 7 * 24
 
 # Completed PL seasons (start-year) to aggregate past-season stats over.
 # Transfermarkt only exposes *current* market value (its season filters don't
@@ -54,3 +58,6 @@ TRANSFERMARKT_CLUB_ID_CACHE = TRANSFERMARKT_RAW_DIR / "club_ids.json"
 PROCESSED_DATASET_PATH = PROCESSED_DIR / "pl_players.csv"
 MODEL_PATH = MODELS_DIR / "linear_regression.joblib"
 CALIBRATION_PATH = MODELS_DIR / "confidence_calibration.json"
+# The second model: likely transfer fee (backend/fee_model.py).
+FEE_MODEL_PATH = MODELS_DIR / "fee_model.joblib"
+FEE_CALIBRATION_PATH = MODELS_DIR / "fee_calibration.json"

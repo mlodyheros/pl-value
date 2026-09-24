@@ -197,6 +197,15 @@ def _nonpl_columns(player: dict, index: dict, kaggle: dict | None = None) -> dic
     }
 
 
+def _europe_columns(player: dict, kaggle: dict) -> dict:
+    """Champions League minutes in the newest completed season."""
+    return {
+        "cl_minutes_last": kaggle_appearances.champions_league_minutes(
+            kaggle, player["name"], player.get("age"), max(SEASONS)
+        )
+    }
+
+
 def _fpl_columns(player: dict | None, gameweeks: int) -> dict:
     if player is None:
         return {
@@ -334,6 +343,7 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
                 **_fpl_columns(fpl_player, gameweeks),
                 **_history_columns(player["name"], player.get("position", ""), fpl_player, pl_history),
                 **_nonpl_columns(player, understat, kaggle_leagues),
+                **_europe_columns(player, kaggle_leagues),
                 **_fee_columns(player, fees, arrivals),
             }
         )

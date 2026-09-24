@@ -28,6 +28,7 @@ NUMERIC_FEATURES = [
     "years_since_fee",
     "backup_keeper",
     "gi_x_career",
+    "cl_matches_last",
 ]
 CATEGORICAL_FEATURES = ["position", "club"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -151,6 +152,16 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
       errors over 100 paired folds), EUR12.9m -> EUR12.4m among the dearest
       tenth, and the median player under EUR1m goes from 4.4x the market to
       2.5x.
+    - ``cl_matches_last``: Champions League minutes in the newest completed
+      season, divided by 90. Playing in it says what domestic minutes cannot:
+      that a player is trusted in the games that decide a club's season. It
+      reached where nothing else had - Haaland from 0.82 of his market value
+      to 0.91, the dearest dozen from 0.96 to 1.01 on average - and cut MAE
+      EUR6.12m -> EUR6.00m (4 standard errors over 100 paired folds), with
+      the dearest tenth unchanged within noise.
+      Counting the Europa League too was no better, and three seasons of
+      European minutes instead of one were worse at the top: last season's
+      Champions League is the signal.
     """
     out = df.copy()
     out["age_squared"] = out["age"] ** 2
@@ -265,6 +276,12 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         out["backup_keeper"] = (unused & (position == "Goalkeeper")).astype(float)
     if "gi_x_career" not in out:
         out["gi_x_career"] = out["career_gi_per90"] * out["career_minutes_share"]
+    if "cl_matches_last" not in out:
+        out["cl_matches_last"] = (
+            pd.to_numeric(out["cl_minutes_last"], errors="coerce").fillna(0) / ONE_MATCH_MINUTES
+            if "cl_minutes_last" in out
+            else 0.0
+        )
     if "years_since_fee" not in out:
         out["years_since_fee"] = (
             pd.to_numeric(out["transfer_fee_years"], errors="coerce").fillna(0)

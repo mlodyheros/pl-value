@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sklearn.model_selection import KFold
 
-from backend import confidence
+from backend import confidence, fee_model
 from backend.config import (
     CALIBRATION_PATH,
     PROCESSED_DATASET_PATH,
@@ -55,12 +55,20 @@ class DatasetMissing(RuntimeError):
 
 
 @lru_cache(maxsize=8)
-def _build_state(dataset_stamp: float) -> dict:
-    """Keyed on the dataset's mtime, so rebuilding it invalidates this."""
+def _build_state(dataset_stamp: float, calibration_stamp: float | None = None) -> dict:
+    """Keyed on the dataset's and the calibration's mtimes, so a refresh -
+    which rewrites both, one after the other - is picked up whole."""
     df = add_derived_features(pd.read_csv(PROCESSED_DATASET_PATH))
     df["predicted_eur"] = _out_of_fold_predictions(df)
     df["tier"] = confidence.coverage_tiers(df)
     df["gap_pct"] = (df.predicted_eur / df.market_value_eur - 1) * 100
+
+    # The second model, when it has been trained: what a club would likely pay.
+    fees = fee_model.load()
+    fee_calibration = None
+    if fees is not None:
+        df = df.join(fee_model.estimate(*fees, df))
+        fee_calibration = fees[1]
 
     calibration = (
         json.loads(CALIBRATION_PATH.read_text()) if CALIBRATION_PATH.exists() else None
@@ -82,6 +90,7 @@ def _build_state(dataset_stamp: float) -> dict:
     return {
         "df": df,
         "calibration": calibration,
+        "fee_calibration": fee_calibration,
         "metrics": cross_validate_model(df),
         "timelines": timelines,
     }
@@ -99,7 +108,8 @@ def get_state() -> dict:
             f"No dataset at {PROCESSED_DATASET_PATH}. "
             "Run `python -m backend.sources.build_dataset` first."
         )
-    return _build_state(PROCESSED_DATASET_PATH.stat().st_mtime)
+    calibration_stamp = CALIBRATION_PATH.stat().st_mtime if CALIBRATION_PATH.exists() else None
+    return _build_state(PROCESSED_DATASET_PATH.stat().st_mtime, calibration_stamp)
 
 
 # Tests and callers reach for this the way they would on an lru_cache.
@@ -150,8 +160,26 @@ def _peers(row: pd.Series, df: pd.DataFrame) -> dict:
     }
 
 
+def _fee_estimate(row: pd.Series, fee_calibration: dict | None) -> dict | None:
+    """What a club would likely pay: to a PL club and abroad, with the spread."""
+    if fee_calibration is None or pd.isna(row.get("fee_pl_eur")):
+        return None
+    return {
+        "premierLeagueEur": float(row.fee_pl_eur),
+        "abroadEur": float(row.fee_abroad_eur),
+        "level": fee_calibration["level"],
+        "lowMultiple": float(np.exp(fee_calibration["low"])),
+        "highMultiple": float(np.exp(fee_calibration["high"])),
+        "transfers": int(fee_calibration["n"]),
+    }
+
+
 def _player_payload(
-    row: pd.Series, calibration: dict | None, df: pd.DataFrame, timelines: dict
+    row: pd.Series,
+    calibration: dict | None,
+    df: pd.DataFrame,
+    timelines: dict,
+    fee_calibration: dict | None = None,
 ) -> dict:
     predicted = float(row.predicted_eur)
     low = high = None
@@ -191,6 +219,7 @@ def _player_payload(
             if calibration is None
             else confidence.describe(row.tier, calibration, CONFIDENCE_LEVEL),
         },
+        "feeEstimate": _fee_estimate(row, fee_calibration),
         "seasons": _timeline(row, timelines),
         "peers": _peers(row, df),
         "evidence": {
@@ -260,7 +289,9 @@ def get_player(player_id: int) -> dict:
     df = state["df"]
     if player_id not in df.index:
         raise HTTPException(status_code=404, detail="No player with that id")
-    return _player_payload(df.loc[player_id], state["calibration"], df, state["timelines"])
+    return _player_payload(
+        df.loc[player_id], state["calibration"], df, state["timelines"], state.get("fee_calibration")
+    )
 
 
 @app.get("/api/rankings")

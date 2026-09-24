@@ -31,6 +31,11 @@ plainly whether the market falls inside it.
   low-confidence label rather than a falsely precise number.
 - **Compare** — two players' ranges drawn on one shared scale.
 
+Each player page also shows what a club would likely pay, from the second model
+(`backend/fee_model.py`): one figure for a Premier League buyer and one for a buyer
+abroad, with how widely real fees scatter and a note when a short contract would
+pull the price down.
+
 The verdict leads with whether the market falls inside the range, not with the
 raw percentage. When a club has just paid several times the market's figure for a
 player, the page says so: that valuation has usually not caught up with the fee yet. The model shrinks its estimates toward the middle, so a bare

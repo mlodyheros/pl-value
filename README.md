@@ -66,6 +66,13 @@ python -m backend.predict --player "Erling Haaland"
 # ...or predict for a hypothetical player by hand
 python -m backend.predict --age 24 --position "Centre-Forward" --club "Man City" \
     --minutes-share 0.9 --career-minutes-share 0.85 --career-gi-per90 0.8
+
+# 4. Train the second model: what a club would likely pay (needs the Kaggle files).
+python -m backend.fee_model
+
+# Keep everything current: rebuilds and retrains only when a gameweek has
+# finished or Transfermarkt's pages are a week old (see "Keeping it current").
+python -m backend.refresh
 ```
 
 `notebooks/01_model_exploration.ipynb` walks through the data, the model and
@@ -73,7 +80,7 @@ the experiment log behind the modelling choices (run the dataset build first).
 
 ## Current performance
 
-5-fold cross-validated on ~540 players: **R² ≈ 0.82** (on log value), **MAE ≈ €6.1m**.
+5-fold cross-validated on ~540 players: **R² ≈ 0.83** (on log value), **MAE ≈ €6.1m**.
 Trust the CV numbers over the single 80/20 split, which swings by ~0.1 R² between
 seeds at this dataset size.
 
@@ -95,7 +102,12 @@ seeds at this dataset size.
 | + young regulars, and how old the fee is | 0.77 | €6.5m | €12.4m |
 | + older regulars | 0.77 | €6.4m | €12.5m |
 | + backup keepers, and output kept up over a career | 0.80 | €6.3m | €12.2m |
-| + **names that actually join** | **0.82** | **€6.1m** | **€11.7m** |
+| + names that actually join | 0.82 | €6.1m | €11.7m |
+| + **Champions League minutes last season** | **0.83** | **€6.1m** | **€13.2m**\* |
+
+\* The top-10% column is the noisiest: it moves by up to ±€1.3m from one random
+split to the next. Averaged over 20 splits, the Champions League term cuts overall
+MAE by €0.12m and costs €0.2m among the dearest tenth - see below.
 
 Findings worth keeping in mind:
 
@@ -151,6 +163,14 @@ Findings worth keeping in mind:
   among the dearest tenth (€12.4m → €12.5m), because the age curve refits and
   young stars ease down 1–3%. It fixes the error the reader flagged most
   emphatically.
+- **Last season's Champions League says what domestic minutes cannot.** Minutes
+  in it (divided by 90) reached where nothing else had: Haaland from 0.82 of his
+  market value to 0.91, Rice from 0.86 to 0.97, the dearest dozen from 0.96 to 1.01
+  on average, and overall MAE down €0.12m (4 standard errors over 100 paired
+  folds). It is not free. It redistributes value toward clubs that played in it -
+  Isak, Anderson and Rogers, whose clubs did not, ease down - and among the dearest
+  tenth the error is €0.2m worse on average. Adding the Europa League was no
+  better, and three seasons instead of one were worse at the top.
 - **Some of the worst errors were joins, not judgement.** Name normalisation
   dropped letters it could not decompose — "Gabriel Słonina" became "sonina",
   "Đorđe Petrović" became "ore petrovic" — and FPL spells eight players differently
@@ -197,23 +217,64 @@ the top 10%, at some cost in log-R².
 ### The fitted model
 
 ```
-log(1 + value) = 16.41
-   + 1.35·z(age) − 1.66·z(age²) − 0.12·z(age−23)⁺ − 0.33·z(age−29)⁺
-   + 0.11·z(minutes_share)                              this season
-   + 0.09·z(career_minutes_share) + 0.20·z(recent_minutes_share)
-   + 0.16·z(career_gi_per90) + 0.05·z(career_gi_per90 × career_minutes)
-   + 0.76·z(log_transfer_fee) − 0.76·z(has_transfer_fee) + 0.04·z(years_since_fee)
-   − 0.29·z(idle) + 0.09·z(idle × career) + 0.20·z(idle × fee)
-   + 0.06·z((23−age)⁺ × recent_minutes) + 0.09·z((age−29)⁺ × career_minutes)
-   − 0.25·z(backup_keeper)
-   + 0.18·z(has_fpl_record) + 0.11·z(has_hist_record) − 0.22·z(has_any_history)
+log(1 + value) = 16.46
+   + 1.10·z(age) − 1.32·z(age²) − 0.16·z(age−23)⁺ − 0.36·z(age−29)⁺
+   + 0.12·z(minutes_share)                              this season
+   + 0.10·z(career_minutes_share) + 0.19·z(recent_minutes_share)
+   + 0.16·z(career_gi_per90) + 0.04·z(career_gi_per90 × career_minutes)
+   + 0.69·z(log_transfer_fee) − 0.68·z(has_transfer_fee) + 0.03·z(years_since_fee)
+   − 0.25·z(idle) + 0.07·z(idle × career) + 0.18·z(idle × fee)
+   + 0.08·z((23−age)⁺ × recent_minutes) + 0.08·z((age−29)⁺ × career_minutes)
+   − 0.25·z(backup_keeper) + 0.10·z(champions_league_matches_last_season)
+   + 0.17·z(has_fpl_record) + 0.12·z(has_hist_record) − 0.20·z(has_any_history)
    + position effect + club effect
 ```
 
-`z(x)` is the standardised feature. Club effects run from ×1.9 (Arsenal) to ×0.6
-(Hull City) against the baseline; goalkeepers who play sit ×0.96 against
-attacking midfielders, and backups well below that. The age term alone peaks at 21, earlier than the raw data's mid-20s,
-because the minutes features already carry most of what age would otherwise say.
+`z(x)` is the standardised feature, so the coefficients compare importance. Club
+effects run from ×1.7 (Man City) to ×0.6 (Hull City) against Bournemouth;
+goalkeepers who play sit ×0.91 against attacking midfielders, and backups well
+below that. The age term alone peaks at about 22, earlier than the raw data's
+mid-20s, because the minutes features already carry most of what age would
+otherwise say.
+
+The same model in plain units, to compute by hand -
+`value ≈ e^(12.549 + Σ coefficient × feature) × club × position`:
+
+| Feature (unit) | Coefficient |
+|---|---|
+| age | +0.2582 |
+| age² | −0.0058 |
+| (age − 23), when positive | −0.0467 |
+| (age − 29), when positive | −0.2277 |
+| in this season's FPL list (0/1) | +1.2359 |
+| share of this season's minutes (0–1) | +0.3176 |
+| has a PL record (0/1) | +0.2816 |
+| has any record (0/1) | −0.6575 |
+| career share of minutes, last 4 seasons (0–1) | +0.3398 |
+| goals + assists per 90 | +0.6723 |
+| share of last season's minutes (0–1) | +0.5794 |
+| has a transfer fee (0/1) | −1.8141 |
+| ln(transfer fee in €) | +0.1093 |
+| not playing this season (0/1) | −0.4945 |
+| not playing × career share | +0.3249 |
+| not playing × ln(fee) | +0.0232 |
+| (23 − age), when positive, × last season's share | +0.1992 |
+| (age − 29), when positive, × career share | +0.1111 |
+| years since the fee | +0.0095 |
+| backup keeper (0/1) | −1.6539 |
+| goals + assists per 90 × career share | +0.3514 |
+| Champions League matches last season (minutes ÷ 90) | +0.0341 |
+
+Clubs: Man City ×1.66, Arsenal ×1.62, Chelsea ×1.48, Man Utd ×1.48, Liverpool ×1.41,
+Aston Villa ×1.23, Nott'm Forest ×1.12, Crystal Palace ×1.10, Tottenham ×1.10,
+Brighton ×1.10, Everton ×1.01, Bournemouth ×1.00, Newcastle ×0.96, Brentford ×0.95,
+Fulham ×0.94, Ipswich ×0.91, Sunderland ×0.88, Leeds ×0.86, Coventry ×0.86, Hull ×0.61.
+Positions: defensive midfield ×1.13, centre-back ×1.08, central midfield ×1.07,
+attacking midfield ×1.00, right winger ×0.99, centre-forward ×0.98, left winger ×0.96,
+right-back ×0.95, goalkeeper ×0.91, left midfield ×0.89, left-back ×0.84, right
+midfield ×0.69. Worked through for Bruno Fernandes, the terms add to 4.381, so
+e^16.930 ≈ €22.5m, times ×1.48 for Man Utd: **€33.2m**. (The app shows each player
+as valued by a model fitted without them, so its figure differs slightly.)
 
 Two coefficients are negative on purpose. `age²` is the downward half of the
 curve. `has_any_history` separates a player whose zeros mean "no data" from one
@@ -285,16 +346,16 @@ log value), so the ranges are ratios:
 
 | What backs the prediction | Players | 80% range | Label |
 |---|---|---|---|
-| Premier League history | 421 | ×0.38 – ×1.67 | moderate confidence |
-| Other leagues only | 58 | ×0.48 – ×1.55 | moderate confidence |
-| No record anywhere | 61 | ×0.25 – ×1.82 | low confidence |
+| Premier League history | 424 | ×0.52 – ×1.50 | moderate confidence |
+| Other leagues only | 60 | ×0.53 – ×1.54 | moderate confidence |
+| No record anywhere | 56 | ×0.28 – ×1.93 | low confidence |
 
 ```
 Geovany Quenda (Chelsea, Right Winger, age 19)
   No recent history in any covered league (prediction is weak)
-  Predicted value: €27,574,511
+  Predicted value: €29,933,157
   Confidence:      low confidence - no recent playing record in any covered league
-  80% range:       €6,878,685 - €50,089,935
+  80% range:       €8,330,894 - €57,816,918
 ```
 
 The ranges are checked, not just computed: calibrating on training folds and
@@ -304,14 +365,57 @@ of the time and the stated 80% range 75-84% of the time.
 Two deliberate choices:
 
 - **There is no "high confidence" band.** Even the best-evidenced group spans
-  more than a factor of four. Calling that high would misrepresent the model.
-- **The two history-backed tiers share a label** although their measured spreads
-  differ (×4.4 vs ×3.2). The smaller tier holds ~60 players, far too few for that
-  gap to be real - splitting them would advertise precision the sample can't
-  support, and would perversely rank players we know *less* about as safer.
+  nearly a factor of three. Calling that high would misrepresent the model.
+- **The two history-backed tiers share a label**, and their measured spreads are
+  now all but identical (×2.9 each). Earlier they differed, but the smaller tier
+  holds ~60 players, far too few for a gap between them to be trusted.
 
 Calibration is written to `models/confidence_calibration.json` by
 `python -m backend.model`.
+
+## A second model: what a club would pay
+
+The value model predicts Transfermarkt's valuation. `backend/fee_model.py`
+answers a different question - what a buying club would actually pay - and learns
+it from ~5,600 paid transfers since mid-2019 (players worth €2m+), each carrying
+the fee and the player's market value on the day. Fees follow the market's figure
+closely, but not one-for-one:
+
+| On the day of the transfer | Typical fee ÷ market value |
+|---|---|
+| bought by a Premier League club | ×1.25 |
+| sold by a PL club abroad | ×0.94 |
+| player aged 20 or under | ×1.54 |
+| 23–26 / 26–29 / 29–32 | ×0.78 / ×0.62 / ×0.53 |
+
+A linear model on log fee (market value, age curve, position, PL buyer and seller,
+year) beats "fee = market value" where it matters here: on sales by PL clubs of
+players worth €5m+, the typical miss is ×1.39 against ×1.43, and on sales to another
+PL club ×1.27 against ×1.43 - where the market value alone runs about 20% low.
+
+The player page shows two figures, a PL buyer and a buyer abroad. Fees are noisy -
+8 in 10 land between ×0.4 and ×2.1 of the estimate - and the model cannot see
+contracts, which move a fee most after age; the page says so when a contract has
+little over a year left.
+
+## Keeping it current
+
+`python -m backend.refresh` checks whether a gameweek has finished since the last
+build, or Transfermarkt's squad pages are more than a week old (they are
+refetched weekly now; club search pages are kept for good). If so it rebuilds the
+dataset and retrains both models; if not it does nothing. The API notices a
+rebuilt dataset on its next request, so the server does not need restarting.
+
+```bash
+./scripts/install_refresh_schedule.sh     # run it daily at 07:00 (macOS launchd)
+./scripts/uninstall_refresh_schedule.sh   # and stop
+```
+
+On macOS, background jobs cannot read the Desktop, Documents or Downloads folders.
+If the project lives in one of them, the job fails with "Operation not permitted"
+(see `data/refresh.log`) until either the project moves elsewhere (recreate
+`.venv` after moving it) or the Python that `.venv` points to is given Full Disk
+Access in System Settings → Privacy & Security.
 
 ## What is left, and why
 
@@ -319,11 +423,11 @@ The interface audit that produced most of this section is worked through. Three
 items were closed by measurement rather than by code, and they are the honest
 edges of the project:
 
-- **Players with nothing on record.** 35 of 540 have no playing history *and* no
-  transfer fee. Their median error is 49% against 27% for everyone else. Transfer
-  fees cut this group from 61 players and 56% error, but what remains is scouting
-  reputation — the market prices Bouaddi at €80m and Mouzakitis at €25m on
-  potential that no source we can reach measures.
+- **Players with nothing on record.** 22 of 540 have no playing history *and* no
+  transfer fee. Their median error is 46% against 26% for everyone else. Most are
+  Championship players at the promoted clubs - van Ewijk and Rudoni at Coventry,
+  Egeli at Ipswich - and no source we can reach covers the Championship: FBref
+  blocks automated access, and Transfermarkt's player pages need a browser.
 - **Shrinkage toward the middle** was corrected three ways (linear recalibration,
   isotonic, Duan smearing) and every one made euro error worse. It is the price of
   lower error with noisy features, so the interface explains it instead.
@@ -349,9 +453,10 @@ edges of the project:
   "fee unknown" and the model falls back on playing history. This season's fees
   are scraped with the squads and are always there. See
   `backend/sources/transfer_fees.py`.
-- **Cached pages do not expire**: Transfermarkt pages are cached for good, so a
-  rebuild in January still sees the summer's squads and signings. Delete
-  `data/raw/transfermarkt/squad_*.html` and `transfers_*.html` to refresh them.
+- **Transfermarkt pages refresh weekly**: squad and transfer pages are refetched
+  once they are a week old, and a failed refetch falls back to the cached copy
+  with a warning. A player's valuation can therefore lag Transfermarkt's own by up
+  to a week.
 - **Partial coverage for new arrivals**: Understat (and Kaggle, for the names it
   misses) fills in players arriving from the big five leagues, but not Portugal,
   the Championship, the Eredivisie or anywhere else - so 56 players (~10%, €683m of
@@ -391,6 +496,8 @@ backend/
   evaluate.py                     predicted-vs-actual and residual plots
   predict.py                      CLI to compare prediction vs actual
   confidence.py                   measured prediction ranges by data coverage
+  fee_model.py                    the second model: likely transfer fee
+  refresh.py                      rebuild + retrain when a gameweek has finished
   api.py                          HTTP API; the only thing the frontend calls
   sources/
     fpl_client.py                 FPL API: clubs and this season's stats
@@ -402,6 +509,7 @@ backend/
     names.py                      name normalisation shared by the joins
     build_dataset.py              joins the sources into one CSV
   tests/                          unit tests (no network calls)
+scripts/                          install/remove the daily refresh (macOS)
 frontend/
   index.html, assets/             single page, no build step (light + dark)
 notebooks/                        exploration and experiment log (executed)
