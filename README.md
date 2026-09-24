@@ -80,7 +80,7 @@ the experiment log behind the modelling choices (run the dataset build first).
 
 ## Current performance
 
-5-fold cross-validated on ~540 players: **R² ≈ 0.83** (on log value), **MAE ≈ €6.0m**.
+5-fold cross-validated on ~540 players: **R² ≈ 0.83** (on log value), **MAE ≈ €5.9m**.
 Trust the CV numbers over the single 80/20 split, which swings by ~0.1 R² between
 seeds at this dataset size.
 
@@ -104,7 +104,8 @@ seeds at this dataset size.
 | + backup keepers, and output kept up over a career | 0.80 | €6.3m | €12.2m |
 | + names that actually join | 0.82 | €6.1m | €11.7m |
 | + Champions League minutes last season | 0.83 | €6.1m | €13.2m\* |
-| + **a season below a player's own level** | **0.83** | **€6.0m** | **€13.3m**\* |
+| + a season below a player's own level | 0.83 | €6.0m | €13.3m\* |
+| + **attacking involvement, against the position** | **0.83** | **€5.9m** | **€13.1m**\* |
 
 \* The top-10% column is the noisiest: it moves by up to ±€1.3m from one random
 split to the next. Averaged over 20 splits, the Champions League term cuts overall
@@ -164,6 +165,19 @@ Findings worth keeping in mind:
   among the dearest tenth (€12.4m → €12.5m), because the age curve refits and
   young stars ease down 1–3%. It fixes the error the reader flagged most
   emphatically.
+- **A quality score that is fair to everyone.** FPL's bonus points were turned
+  down (below) because only PL players have them. Understat's xGChain per 90 - the
+  xG of every attack a player was part of - covers the PL and the five other big
+  leagues the same way, so a player from Lille is measured on the same scale as one
+  from Liverpool; divided by his position group's average, since a defensive
+  midfielder is not meant to be in every attack. MAE €5.96m → €5.84m (6.6 standard
+  errors), the typical miss 30.9% → 28.2%, and the reader's flagged players moved
+  toward his view (0.271 → 0.254 on the weighted measure): Kerkez 1.98 → 1.79 of his
+  market value, Zubimendi 1.33 → 1.25. It needed its own matching - Understat writes
+  "O&#039;Reilly", "Smith-Rowe" and "Mathis Cherki", and several players are just
+  "Gabriel" - so a name shared by two Understat players is settled within the
+  player's own club. It costs Bouaddi: his xGChain is an average defensive
+  midfielder's, and once quality is measured his €95m fee no longer stands in for it.
 - **A second round of labels, and a quality score that was unfair.** Re-judging
   seven players and adding three found two patterns: young players who play now
   (Kroupi, Rayan, Mainoo, Scott) and players back from an interrupted season (Isak,
@@ -231,65 +245,69 @@ the top 10%, at some cost in log-R².
 ### The fitted model
 
 ```
-log(1 + value) = 16.46
-   + 1.12·z(age) − 1.38·z(age²) − 0.14·z(age−23)⁺ − 0.35·z(age−29)⁺
+log(1 + value) = 16.44
+   + 1.22·z(age) − 1.64·z(age²) − 0.02·z(age−23)⁺ − 0.32·z(age−29)⁺
    + 0.12·z(minutes_share)                              this season
-   + 0.04·z(career_minutes_share) + 0.25·z(recent_minutes_share)
-   + 0.05·z(career share − last season's share)⁺
-   + 0.16·z(career_gi_per90) + 0.04·z(career_gi_per90 × career_minutes)
-   + 0.69·z(log_transfer_fee) − 0.67·z(has_transfer_fee) + 0.02·z(years_since_fee)
-   − 0.24·z(idle) + 0.06·z(idle × career) + 0.18·z(idle × fee)
-   + 0.07·z((23−age)⁺ × recent_minutes) + 0.08·z((age−29)⁺ × career_minutes)
-   − 0.25·z(backup_keeper) + 0.10·z(champions_league_matches_last_season)
-   + 0.17·z(has_fpl_record) + 0.12·z(has_hist_record) − 0.21·z(has_any_history)
+   + 0.03·z(career_minutes_share) + 0.25·z(recent_minutes_share)
+   + 0.04·z(career share − last season's share)⁺
+   + 0.12·z(career_gi_per90) + 0.05·z(career_gi_per90 × career_minutes)
+   + 0.10·z(xGChain per 90 ÷ position average) + 0.06·z(has_quality_record)
+   + 0.65·z(log_transfer_fee) − 0.64·z(has_transfer_fee) + 0.01·z(years_since_fee)
+   − 0.22·z(idle) + 0.05·z(idle × career) + 0.18·z(idle × fee)
+   + 0.06·z((23−age)⁺ × recent_minutes) + 0.08·z((age−29)⁺ × career_minutes)
+   − 0.23·z(backup_keeper) + 0.09·z(champions_league_matches_last_season)
+   + 0.16·z(has_fpl_record) + 0.12·z(has_hist_record) − 0.27·z(has_any_history)
    + position effect + club effect
 ```
 
 `z(x)` is the standardised feature, so the coefficients compare importance. Club
-effects run from ×1.6 (Man City) to ×0.6 (Hull City) against Bournemouth;
-goalkeepers who play sit ×0.91 against attacking midfielders, and backups well
+effects run from ×1.6 (Arsenal) to ×0.6 (Hull City) against Bournemouth;
+goalkeepers who play sit ×0.94 against attacking midfielders, and backups well
 below that. The age term alone peaks at about 22, earlier than the raw data's
 mid-20s, because the minutes features already carry most of what age would
 otherwise say.
 
 The same model in plain units, to compute by hand -
-`value ≈ e^(12.561 + Σ coefficient × feature) × club × position`:
+`value ≈ e^(12.596 + Σ coefficient × feature) × club × position`:
 
 | Feature (unit) | Coefficient |
 |---|---|
-| age | +0.2635 |
-| age² | −0.0061 |
-| (age − 23), when positive | −0.0394 |
-| (age − 29), when positive | −0.2215 |
-| in this season's FPL list (0/1) | +1.2310 |
-| share of this season's minutes (0–1) | +0.3082 |
-| has a PL record (0/1) | +0.2886 |
-| has any record (0/1) | −0.6831 |
-| career share of minutes, last 4 seasons (0–1) | +0.1508 |
-| goals + assists per 90 | +0.6703 |
-| share of last season's minutes (0–1) | +0.7752 |
-| career share minus last season's, when positive | +0.3775 |
-| has a transfer fee (0/1) | −1.8030 |
-| ln(transfer fee in €) | +0.1091 |
-| not playing this season (0/1) | −0.4834 |
-| not playing × career share | +0.3005 |
-| not playing × ln(fee) | +0.0230 |
-| (23 − age), when positive, × last season's share | +0.1859 |
-| (age − 29), when positive, × career share | +0.1123 |
-| years since the fee | +0.0093 |
-| backup keeper (0/1) | −1.6358 |
-| goals + assists per 90 × career share | +0.3630 |
-| Champions League matches last season (minutes ÷ 90) | +0.0361 |
+| age | +0.2884 |
+| age² | −0.0072 |
+| (age − 23), when positive | −0.0044 |
+| (age − 29), when positive | −0.2030 |
+| in this season's FPL list (0/1) | +1.1531 |
+| share of this season's minutes (0–1) | +0.3085 |
+| has a PL record (0/1) | +0.3029 |
+| has any record (0/1) | −0.8696 |
+| career share of minutes, last 4 seasons (0–1) | +0.1146 |
+| goals + assists per 90 | +0.5295 |
+| share of last season's minutes (0–1) | +0.7474 |
+| career share minus last season's, when positive | +0.3008 |
+| xGChain per 90 ÷ position-group average (GK 0.13, D 0.34, M 0.48, F 0.60) | +0.1940 |
+| has an Understat record of 450+ minutes (0/1) | +0.1417 |
+| has a transfer fee (0/1) | −1.7154 |
+| ln(transfer fee in €) | +0.1038 |
+| not playing this season (0/1) | −0.4333 |
+| not playing × career share | +0.2321 |
+| not playing × ln(fee) | +0.0224 |
+| (23 − age), when positive, × last season's share | +0.1465 |
+| (age − 29), when positive, × career share | +0.1042 |
+| years since the fee | +0.0056 |
+| backup keeper (0/1) | −1.4686 |
+| goals + assists per 90 × career share | +0.4216 |
+| Champions League matches last season (minutes ÷ 90) | +0.0323 |
 
-Clubs: Man City ×1.64, Arsenal ×1.62, Man Utd ×1.48, Chelsea ×1.47, Liverpool ×1.41,
-Aston Villa ×1.22, Nott'm Forest ×1.13, Crystal Palace ×1.11, Brighton ×1.10,
-Tottenham ×1.09, Everton ×1.01, Bournemouth ×1.00, Newcastle ×0.96, Fulham ×0.95,
-Brentford ×0.94, Ipswich ×0.90, Sunderland ×0.90, Coventry ×0.87, Leeds ×0.87, Hull ×0.61.
-Positions: defensive midfield ×1.13, centre-back ×1.08, central midfield ×1.07,
-attacking midfield ×1.00, right winger ×0.99, centre-forward ×0.97, left winger ×0.96,
-right-back ×0.94, left midfield ×0.92, goalkeeper ×0.91, left-back ×0.84, right
-midfield ×0.69. Worked through for Bruno Fernandes, the terms add to 4.349, so
-e^16.910 ≈ €22.1m, times ×1.48 for Man Utd: **€32.8m**. (The app shows each player
+Clubs: Arsenal ×1.63, Man City ×1.52, Man Utd ×1.42, Chelsea ×1.39, Liverpool ×1.32,
+Aston Villa ×1.18, Nott'm Forest ×1.15, Crystal Palace ×1.10, Tottenham ×1.07,
+Brighton ×1.06, Everton ×1.01, Bournemouth ×1.00, Newcastle ×0.96, Fulham ×0.95,
+Brentford ×0.94, Sunderland ×0.93, Ipswich ×0.93, Coventry ×0.92, Leeds ×0.88, Hull ×0.62.
+Positions: defensive midfield ×1.18, centre-back ×1.11, central midfield ×1.09,
+centre-forward ×1.04, right winger ×1.04, left winger ×1.01, attacking midfield ×1.00,
+left midfield ×0.95, goalkeeper ×0.94, right-back ×0.94, left-back ×0.83, right
+midfield ×0.71. Worked through for Bruno Fernandes (xGChain 1.6× an average
+midfielder's), the terms add to 4.352, so e^16.949 ≈ €22.9m, times ×1.42 for Man Utd:
+**€32.5m**. (The app shows each player
 as valued by a model fitted without them, so its figure differs slightly.)
 
 Two coefficients are negative on purpose. `age²` is the downward half of the
@@ -362,8 +380,8 @@ log value), so the ranges are ratios:
 
 | What backs the prediction | Players | 80% range | Label |
 |---|---|---|---|
-| Premier League history | 424 | ×0.52 – ×1.50 | moderate confidence |
-| Other leagues only | 60 | ×0.53 – ×1.54 | moderate confidence |
+| Premier League history | 424 | ×0.55 – ×1.56 | moderate confidence |
+| Other leagues only | 60 | ×0.47 – ×1.57 | moderate confidence |
 | No record anywhere | 56 | ×0.28 – ×1.93 | low confidence |
 
 ```
@@ -382,9 +400,10 @@ Two deliberate choices:
 
 - **There is no "high confidence" band.** Even the best-evidenced group spans
   nearly a factor of three. Calling that high would misrepresent the model.
-- **The two history-backed tiers share a label**, and their measured spreads are
-  now all but identical (×2.9 each). Earlier they differed, but the smaller tier
-  holds ~60 players, far too few for a gap between them to be trusted.
+- **The two history-backed tiers share a label** although their measured spreads
+  differ (×2.8 and ×3.3). The smaller tier holds ~60 players, far too few for that
+  gap to be trusted - splitting them would advertise precision the sample can't
+  support.
 
 Calibration is written to `models/confidence_calibration.json` by
 `python -m backend.model`.
@@ -522,7 +541,7 @@ backend/
   sources/
     fpl_client.py                 FPL API: clubs and this season's stats
     fpl_archive_client.py         past PL seasons, one CSV per season (cached)
-    understat_client.py           Understat league data for non-PL seasons (cached)
+    understat_client.py           Understat league data: non-PL seasons, and xGChain for all (cached)
     transfer_fees.py              fees paid, from an optional Kaggle download
     kaggle_appearances.py         big-league minutes Understat's spelling misses (optional)
     transfermarkt_scraper.py      squad/value scraper (cached, rate-limited)

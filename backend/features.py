@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from backend.sources.understat_client import transfermarkt_position_group
+
 NUMERIC_FEATURES = [
     "age",
     "age_squared",
@@ -30,6 +32,8 @@ NUMERIC_FEATURES = [
     "gi_x_career",
     "cl_matches_last",
     "below_career",
+    "xgchain_vs_position",
+    "has_quality_record",
 ]
 CATEGORICAL_FEATURES = ["position", "club"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -42,6 +46,10 @@ ONE_MATCH_MINUTES = 90
 UNUSED_SHARE = 0.05
 # Five full matches: below this a per-90 rate is mostly noise.
 MIN_RATE_MINUTES = 450
+# Average xGChain per 90 by position group across the covered leagues, 2022-26:
+# the yardstick a player's own rate is measured against. Fixed rather than
+# recomputed, so a single player (the CLI) is scored the same way as the squad.
+XGCHAIN_REFERENCE = {"GK": 0.13, "D": 0.34, "M": 0.48, "F": 0.60}
 
 # Knots for the age curve. A plain parabola is forced to be symmetric, and the
 # one this data fits peaks at 21 - too young, so it asks too much for teenagers
@@ -175,6 +183,24 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
       31.0%, and the flagged players' strength-weighted distance from the
       market, in the direction flagged, 0.278 -> 0.272 (Isak 0.80 -> 0.85 of
       his market value, Scott 0.72 -> 0.76, Bouaddi 0.90 -> 0.92).
+
+    - ``xgchain_vs_position`` (with ``has_quality_record``): Understat's
+      xGChain per 90 - the xG of every attack a player was part of - over the
+      covered seasons, divided by the average for his position group. It is
+      the quality score FPL's bonus points could not be: Understat covers the
+      PL and the five other big leagues the same way, so a player arriving
+      from Lille is measured on the same scale as one from Liverpool. Against
+      the position group rather than raw, because a defensive midfielder is
+      not meant to be in every attack. Zero below five full matches, with the
+      flag separating "no data" from "low". MAE EUR5.96m -> EUR5.84m (6.6
+      standard errors over 100 paired folds), typical miss 30.9% -> 28.2%,
+      the dearest tenth unchanged, and on the reader's flagged players the
+      strength-weighted distance from the market 0.271 -> 0.254: Kerkez from
+      1.98 of his market value to 1.79, Zubimendi 1.33 -> 1.25, Kroupi 0.57 ->
+      0.61. It costs Bouaddi (0.93 -> 0.84): his xGChain is an average
+      defensive midfielder's, and once quality is measured his EUR95m fee no
+      longer stands in for it. Measured against the exact position instead of
+      the group it was no better, and dropped the labels below their floor.
 
     ``career_bps_per90`` / ``recent_bps_per90`` - FPL's bonus points per 90, the
     one quality measure here that covers every position - are computed for
@@ -322,6 +348,20 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
             )
         else:
             out[rate] = 0.0
+    if "has_quality_record" not in out:
+        quality_minutes = (
+            pd.to_numeric(out["us_minutes"], errors="coerce").fillna(0)
+            if "us_minutes" in out
+            else pd.Series(0.0, index=out.index)
+        )
+        out["has_quality_record"] = (quality_minutes >= MIN_RATE_MINUTES).astype(float)
+    if "xgchain_vs_position" not in out:
+        if "us_xgchain" in out and "us_minutes" in out and "position" in out:
+            per90 = out["us_xgchain"] / out["us_minutes"].clip(lower=1) * 90
+            reference = out["position"].map(lambda p: XGCHAIN_REFERENCE[transfermarkt_position_group(p)])
+            out["xgchain_vs_position"] = np.where(out["has_quality_record"] == 1, per90 / reference, 0.0)
+        else:
+            out["xgchain_vs_position"] = 0.0
     if "years_since_fee" not in out:
         out["years_since_fee"] = (
             pd.to_numeric(out["transfer_fee_years"], errors="coerce").fillna(0)

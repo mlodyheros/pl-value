@@ -13,7 +13,12 @@ from collections import Counter
 
 import pandas as pd
 
-from backend.config import PROCESSED_DATASET_PATH, SEASONS
+from backend.config import (
+    PROCESSED_DATASET_PATH,
+    SEASONS,
+    UNDERSTAT_QUALITY_LEAGUES,
+    UNDERSTAT_TEAM_NAMES,
+)
 from backend.sources import fpl_archive_client as archive
 from backend.sources import fpl_client
 from backend.sources import kaggle_appearances
@@ -153,7 +158,7 @@ def _match_understat(name: str, position: str, index: dict) -> list[dict] | None
     centre-back "Antonio Silva" with goalkeeper "Antonio Sivera", and silently
     files a keeper's numbers under a defender.
     """
-    key = normalize_name(name)
+    key = us.name_key(name)
     if key in index:
         return index[key]
 
@@ -204,6 +209,63 @@ def _europe_columns(player: dict, kaggle: dict) -> dict:
         "cl_minutes_last": kaggle_appearances.champions_league_minutes(
             kaggle, player["name"], player.get("age"), max(SEASONS)
         )
+    }
+
+
+def _understat_player(records: list[dict], position: str) -> list[dict] | None:
+    """One Understat player out of a name's records, or nothing if two share it.
+
+    A name can belong to two players (and one player can be spelled two ways
+    across seasons), so records are grouped by Understat's own id.
+    """
+    ids = {r["id"] for r in records}
+    if len(ids) > 1:
+        wanted = us.transfermarkt_position_group(position)
+        ids = {r["id"] for r in records if us.position_group(r["position"]) == wanted}
+    return [r for r in records if r["id"] in ids] if len(ids) == 1 else None
+
+
+def _match_understat_in_team(name: str, team: str | None, index: dict) -> list[dict] | None:
+    """Last resort for the quality measure: among the player's own club.
+
+    Understat uses fuller or older names than Transfermarkt - 'Mathis Cherki',
+    'Eli Junior Kroupi', 'Valentino Livramento', 'Matthew Cash' - which no
+    league-wide rule can safely take. Within one club a shared surname, or a
+    close spelling, is unambiguous when exactly one player fits.
+    """
+    if not team:
+        return None
+    team = team.lower()
+    # Only the seasons at this club: a shared name elsewhere is someone else.
+    mates = {
+        k: at_club
+        for k, recs in index.items()
+        if (at_club := [r for r in recs if team in r["team"].lower()])
+    }
+    surname = us.name_key(name).split()[-1] if name.strip() else ""
+    same = [k for k in mates if surname and surname in k.split()]
+    if len(same) == 1:
+        return mates[same[0]]
+    close = difflib.get_close_matches(us.name_key(name), mates.keys(), n=2, cutoff=_FPL_TEAM_FUZZY_CUTOFF)
+    return mates[close[0]] if len(close) == 1 else None
+
+
+def _quality_columns(player: dict, index: dict, by_id: dict) -> dict:
+    """xGChain over every covered league, the PL included, for the quality measure."""
+    position = player.get("position", "")
+    one = _understat_player(_match_understat(player["name"], position, index) or [], position)
+    if not one:
+        # No match, or a name several players share ('Gabriel'): try his own club.
+        team = player.get("fpl_team")
+        in_team = _match_understat_in_team(player["name"], UNDERSTAT_TEAM_NAMES.get(team, team), index)
+        one = _understat_player(in_team or [], position)
+    if not one:
+        return {"us_minutes": 0, "us_xgchain": 0.0}
+    # Every season of that player, however Understat spelled him in each.
+    seasons = [r for pid in {r["id"] for r in one} for r in by_id.get(pid, [])]
+    return {
+        "us_minutes": sum(r["minutes"] for r in seasons),
+        "us_xgchain": round(sum(r["xgchain"] for r in seasons), 3),
     }
 
 
@@ -329,6 +391,11 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
         fpl_by_team.setdefault(fpl_player.get("fpl_team"), []).append(fpl_player)
     pl_history = archive.build_index(SEASONS)
     understat = us.build_index(seasons=SEASONS)
+    quality = us.build_index(leagues=UNDERSTAT_QUALITY_LEAGUES, seasons=SEASONS)
+    quality_by_id: dict[str, list[dict]] = {}
+    for records in quality.values():
+        for record in records:
+            quality_by_id.setdefault(record["id"], []).append(record)
     fees = transfer_fees.build_index()
     kaggle_leagues = kaggle_appearances.build_index(SEASONS)
     logger.info("Understat: indexed %d players outside the PL", len(understat))
@@ -348,6 +415,7 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
                 **_history_columns(player["name"], player.get("position", ""), fpl_player, pl_history),
                 **_nonpl_columns(player, understat, kaggle_leagues),
                 **_europe_columns(player, kaggle_leagues),
+                **_quality_columns(player, quality, quality_by_id),
                 **_fee_columns(player, fees, arrivals),
             }
         )

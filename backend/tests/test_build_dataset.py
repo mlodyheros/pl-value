@@ -324,3 +324,59 @@ def test_match_fpl_in_team_takes_a_single_name_as_a_first_name():
     by_full, by_web = bd._index_fpl_players([])
 
     assert bd._match_fpl("Alisson", by_full, by_web, team)["second_name"] == "Becker"
+
+
+def _us(pid, name, team, position="M S", minutes=1800, xgchain=9.0, season=2025):
+    return {"id": pid, "league": "EPL", "season": season, "team": team, "position": position,
+            "minutes": minutes, "goals": 0, "assists": 0, "xgchain": xgchain, "season_minutes": 3420}
+
+
+def _quality_index(*records):
+    index, by_id = {}, {}
+    for name, record in records:
+        index.setdefault(bd.us.name_key(name), []).append(record)
+        by_id.setdefault(record["id"], []).append(record)
+    return index, by_id
+
+
+def test_quality_columns_match_by_name_and_gather_every_season_of_that_player():
+    index, by_id = _quality_index(
+        ("Amad Diallo Traore", _us("8127", "Amad Diallo Traore", "Manchester United", season=2024)),
+        ("Amad Diallo Traore", _us("8127", "Amad Diallo Traore", "Manchester United", season=2025)),
+        ("Amadou Diallo", _us("12200", "Amadou Diallo", "Newcastle United", minutes=1)),
+    )
+    player = {"name": "Amad Diallo", "position": "Right Winger", "fpl_team": "Man Utd"}
+
+    assert bd._quality_columns(player, index, by_id) == {"us_minutes": 3600, "us_xgchain": 18.0}
+
+
+def test_quality_columns_fall_back_to_the_players_own_club():
+    """Understat's 'Mathis Cherki' is Transfermarkt's 'Rayan Cherki'."""
+    index, by_id = _quality_index(
+        ("Mathis Cherki", _us("1", "Mathis Cherki", "Manchester City")),
+        ("Phil Foden", _us("2", "Phil Foden", "Manchester City")),
+    )
+    player = {"name": "Rayan Cherki", "position": "Attacking Midfield", "fpl_team": "Man City"}
+
+    assert bd._quality_columns(player, index, by_id)["us_minutes"] == 1800
+
+
+def test_quality_columns_refuse_a_name_two_players_share_when_the_club_cannot_tell():
+    index, by_id = _quality_index(
+        ("Danilo", _us("1", "Danilo", "Juventus", position="M S")),
+        ("Danilo", _us("2", "Danilo", "Flamengo", position="M S")),
+    )
+    player = {"name": "Danilo", "position": "Central Midfield", "fpl_team": "Nott'm Forest"}
+
+    assert bd._quality_columns(player, index, by_id) == {"us_minutes": 0, "us_xgchain": 0.0}
+
+
+def test_quality_columns_settle_a_shared_name_within_the_club():
+    """Several Understat players are just 'Gabriel'; only one plays for Arsenal."""
+    index, by_id = _quality_index(
+        ("Gabriel", _us("1", "Gabriel", "Arsenal", position="D S")),
+        ("Gabriel", _us("2", "Gabriel", "Lecce", position="D S")),
+    )
+    player = {"name": "Gabriel", "position": "Centre-Back", "fpl_team": "Arsenal"}
+
+    assert bd._quality_columns(player, index, by_id)["us_minutes"] == 1800
