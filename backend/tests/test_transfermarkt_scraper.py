@@ -237,3 +237,54 @@ def test_fetch_arrivals_reads_only_the_arrivals_table(monkeypatch):
 def test_fetch_arrivals_unresolved_club_returns_empty(monkeypatch):
     monkeypatch.setattr(tm, "resolve_club_id", lambda name: None)
     assert tm.fetch_arrivals("Nowhere FC", 2026) == []
+
+
+class _Response:
+    def __init__(self, text, ok=True):
+        self.text = text
+        self.ok = ok
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise tm.requests.HTTPError("503")
+
+
+def _cached_page(tmp_path, monkeypatch, age_hours):
+    import os
+    import time
+
+    monkeypatch.setattr(tm, "TRANSFERMARKT_RAW_DIR", tmp_path)
+    monkeypatch.setattr(tm, "_throttle", lambda: None)
+    page = tmp_path / "squad_11.html"
+    page.write_text("cached")
+    old = time.time() - age_hours * 3600
+    os.utime(page, (old, old))
+
+
+def test_get_html_reuses_a_fresh_page_without_a_request(tmp_path, monkeypatch):
+    _cached_page(tmp_path, monkeypatch, age_hours=1)
+    monkeypatch.setattr(tm.requests, "get", lambda *a, **k: pytest.fail("should not fetch"))
+
+    assert tm._get_html("https://x", "squad_11", max_age_hours=24) == "cached"
+
+
+def test_get_html_refetches_a_stale_page(tmp_path, monkeypatch):
+    _cached_page(tmp_path, monkeypatch, age_hours=200)
+    monkeypatch.setattr(tm.requests, "get", lambda *a, **k: _Response("fresh"))
+
+    assert tm._get_html("https://x", "squad_11", max_age_hours=168) == "fresh"
+    assert (tmp_path / "squad_11.html").read_text() == "fresh"
+
+
+def test_get_html_falls_back_to_the_stale_page_when_the_refetch_fails(tmp_path, monkeypatch):
+    _cached_page(tmp_path, monkeypatch, age_hours=200)
+    monkeypatch.setattr(tm.requests, "get", lambda *a, **k: _Response("", ok=False))
+
+    assert tm._get_html("https://x", "squad_11", max_age_hours=168) == "cached"
+
+
+def test_get_html_keeps_pages_without_a_max_age_for_good(tmp_path, monkeypatch):
+    _cached_page(tmp_path, monkeypatch, age_hours=10_000)
+    monkeypatch.setattr(tm.requests, "get", lambda *a, **k: pytest.fail("should not fetch"))
+
+    assert tm._get_html("https://x", "squad_11") == "cached"

@@ -26,6 +26,7 @@ from backend.config import (
     TRANSFERMARKT_CLUB_ID_CACHE,
     TRANSFERMARKT_DELAY_SECONDS,
     TRANSFERMARKT_HEADERS,
+    TRANSFERMARKT_PAGE_MAX_AGE_HOURS,
     TRANSFERMARKT_RAW_DIR,
 )
 
@@ -65,17 +66,31 @@ def _slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
 
 
-def _get_html(url: str, cache_name: str, params: dict | None = None) -> str:
+def _get_html(
+    url: str, cache_name: str, params: dict | None = None, max_age_hours: float | None = None
+) -> str:
+    """A page, from the cache while it is younger than ``max_age_hours``.
+
+    ``None`` keeps a cached page for good. When a stale page cannot be
+    refetched, the old copy is used with a warning rather than failing the
+    whole build: last week's squad is better than none.
+    """
     TRANSFERMARKT_RAW_DIR.mkdir(parents=True, exist_ok=True)
     cache_file = TRANSFERMARKT_RAW_DIR / f"{cache_name}.html"
     if cache_file.exists():
-        return cache_file.read_text(encoding="utf-8")
+        age_hours = (time.time() - cache_file.stat().st_mtime) / 3600
+        if max_age_hours is None or age_hours < max_age_hours:
+            return cache_file.read_text(encoding="utf-8")
 
     _throttle()
-    response = requests.get(
-        url, headers=TRANSFERMARKT_HEADERS, params=params, timeout=15
-    )
-    response.raise_for_status()
+    try:
+        response = requests.get(url, headers=TRANSFERMARKT_HEADERS, params=params, timeout=15)
+        response.raise_for_status()
+    except requests.RequestException:
+        if cache_file.exists():
+            logger.warning("Could not refresh %s; using the cached copy", cache_name, exc_info=True)
+            return cache_file.read_text(encoding="utf-8")
+        raise
     cache_file.write_text(response.text, encoding="utf-8")
     return response.text
 
@@ -232,6 +247,7 @@ def fetch_squad(club_name: str) -> list[dict]:
     html = _get_html(
         f"{TRANSFERMARKT_BASE_URL}/{club['slug']}/kader/verein/{club['id']}",
         cache_name=f"squad_{club['id']}",
+        max_age_hours=TRANSFERMARKT_PAGE_MAX_AGE_HOURS,
     )
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table", class_="items")
@@ -320,6 +336,7 @@ def fetch_arrivals(club_name: str, season: int) -> list[dict]:
     html = _get_html(
         f"{TRANSFERMARKT_BASE_URL}/{club['slug']}/transfers/verein/{club['id']}/saison_id/{season}",
         cache_name=f"transfers_{club['id']}_{season}",
+        max_age_hours=TRANSFERMARKT_PAGE_MAX_AGE_HOURS,
     )
     soup = BeautifulSoup(html, "html.parser")
     arrivals = []

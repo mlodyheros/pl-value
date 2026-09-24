@@ -54,6 +54,8 @@ def client(tmp_path, monkeypatch):
     path = tmp_path / "calibration.json"
     path.write_text(json.dumps(calibration))
     monkeypatch.setattr(api, "CALIBRATION_PATH", path)
+    # The fee model is a trained artifact; these tests should not depend on one.
+    monkeypatch.setattr(api.fee_model, "load", lambda: None)
 
     api.get_state.cache_clear()
     yield TestClient(api.app)
@@ -181,3 +183,34 @@ def test_rebuilding_the_dataset_is_picked_up_without_a_restart(tmp_path, monkeyp
 
     assert client.get("/api/meta").json()["players"] == 40
     api.get_state.cache_clear()
+
+
+def test_player_detail_has_no_fee_estimate_without_the_fee_model(client):
+    assert client.get("/api/players/0").json()["feeEstimate"] is None
+
+
+def test_player_detail_carries_the_fee_estimate_when_the_model_exists(client, monkeypatch):
+    from backend import fee_model
+
+    frame = pd.DataFrame(
+        {
+            "log_value": np.log([5e6, 10e6, 20e6, 40e6] * 10),
+            "age": [20, 24, 28, 32] * 10,
+            "to_pl": [0, 1] * 20,
+            "from_pl": 1.0,
+            "year": 2024.5,
+            "position": ["Attack", "Goalkeeper"] * 20,
+        }
+    )
+    frame = fee_model._add_terms(frame)
+    frame["log_fee"] = frame.log_value + 0.3 * frame.to_pl
+    pipeline = fee_model.build_pipeline().fit(frame[fee_model.NUMERIC + fee_model.CATEGORICAL], frame.log_fee)
+    calibration = {"level": 0.8, "low": -0.8, "high": 0.8, "n": len(frame)}
+    monkeypatch.setattr(api.fee_model, "load", lambda: (pipeline, calibration))
+    api.get_state.cache_clear()
+
+    fee = client.get("/api/players/0").json()["feeEstimate"]
+
+    assert fee["premierLeagueEur"] > fee["abroadEur"] > 0
+    assert fee["lowMultiple"] < 1 < fee["highMultiple"]
+    assert fee["transfers"] == 40

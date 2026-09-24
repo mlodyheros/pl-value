@@ -260,6 +260,50 @@ function valuationChart(player) {
     </section>`;
 }
 
+/* --- what a club would pay -------------------------------------------- */
+
+function contractYearsLeft(player) {
+  if (!player.contractExpiry) return null;
+  return (new Date(player.contractExpiry) - new Date()) / (365.25 * 24 * 3600 * 1000);
+}
+
+// A contract this short usually cuts the price, and the fee model cannot see contracts.
+const SHORT_CONTRACT_YEARS = 1.25;
+
+/** The second model: what clubs have paid for players like this one, against
+    the market's figure. A different question from the valuation above. */
+function feeCard(player) {
+  const fee = player.feeEstimate;
+  if (!fee) return "";
+  const years = contractYearsLeft(player);
+  const contract =
+    years !== null && years < SHORT_CONTRACT_YEARS
+      ? ` The contract runs only to ${new Date(player.contractExpiry).toLocaleDateString("en-GB", { month: "short", year: "numeric" })},
+         and a player that close to leaving for free usually goes for less — which this estimate cannot see.`
+      : "";
+  const multiple = (x) => `×${x.toFixed(1)}`;
+  return `
+    <section class="card chart fee" aria-labelledby="fee-title">
+      <header class="chart__head">
+        <h2 class="chart__title" id="fee-title">If a club bought this player now</h2>
+      </header>
+      <div class="fee__figures">
+        <div>
+          <p class="kpi__label">A Premier League club would likely pay</p>
+          <p class="kpi__value">${money(fee.premierLeagueEur)}</p>
+        </div>
+        <div>
+          <p class="kpi__label">A club abroad</p>
+          <p class="kpi__value">${money(fee.abroadEur)}</p>
+        </div>
+      </div>
+      <p class="chart__note">Learned from ${fee.transfers.toLocaleString("en-GB")} real transfers since 2019:
+        what clubs paid against the market’s figure for players of this age and position. Fees scatter
+        widely — ${Math.round(fee.level * 10)} in 10 land between ${multiple(fee.lowMultiple)} and
+        ${multiple(fee.highMultiple)} of an estimate like this.${contract}</p>
+    </section>`;
+}
+
 /* --- verdict ----------------------------------------------------------- */
 
 /**
@@ -555,6 +599,7 @@ async function open(id) {
     </header>
     ${statTiles(player, rank)}
     ${valuationChart(player)}
+    ${feeCard(player)}
     ${verdict(player)}
     <div class="panels">
       ${seasonsPanel(player)}

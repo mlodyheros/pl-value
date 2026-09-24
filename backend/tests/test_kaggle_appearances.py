@@ -52,6 +52,14 @@ def test_build_index_sums_covered_leagues_by_season(kaggle):
     assert "belgian regular" not in index
 
 
+def test_champions_league_minutes_are_kept_for_everyone(kaggle):
+    index = ka.build_index([2024, 2025], today=dt.date(2026, 9, 22))
+
+    assert ka.champions_league_minutes(index, "Jamie Gittens", 22, 2025) == 90
+    assert ka.champions_league_minutes(index, "Jamie Gittens", 22, 2024) == 0
+    assert ka.champions_league_minutes(index, "Nobody Known", 22, 2025) == 0
+
+
 def test_lookup_confirms_the_player_by_age(kaggle):
     index = ka.build_index([2024, 2025], today=dt.date(2026, 9, 22))
 

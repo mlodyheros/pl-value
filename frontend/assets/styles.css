@@ -619,6 +619,16 @@ li:last-child > .rank { border-bottom: 0; }
 .rplot__tick--mid { transform: translateX(-50%); }
 .rplot__tick--end { transform: translateX(-100%); }
 
+/* --- what a club would pay ---------------------------------------------- */
+
+.fee__figures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem 1.5rem;
+  margin-top: 0.4rem;
+}
+.fee__figures > div { display: grid; gap: 0.25rem; }
+
 /* --- verdict ------------------------------------------------------------ */
 
 .verdict { margin-top: 1.8rem; max-width: 46rem; }
