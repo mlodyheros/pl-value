@@ -13,14 +13,12 @@ reader already flagged.
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
-from sklearn.model_selection import KFold
 
 from backend.config import PROCESSED_DATASET_PATH
-from backend.features import add_derived_features, split_features_target
-from backend.model import build_pipeline, fit_pipeline
+from backend.features import add_derived_features
+from backend.model import out_of_fold_predictions
 
 LABELS = Path(__file__).parent / "fixtures" / "human_labels.csv"
 # Two dozen opinions cannot demand perfection; this catches a reversal.
@@ -29,14 +27,9 @@ MINIMUM_AGREEMENT = 0.80
 
 def _labelled_predictions() -> pd.DataFrame:
     df = add_derived_features(pd.read_csv(PROCESSED_DATASET_PATH))
-    X, y = split_features_target(df)
-
-    # Out-of-fold: a model scoring players it trained on flatters itself.
-    predicted = pd.Series(0.0, index=df.index)
-    for train_idx, test_idx in KFold(5, shuffle=True, random_state=42).split(X):
-        fitted = fit_pipeline(build_pipeline(), X.iloc[train_idx], y.iloc[train_idx])
-        predicted.iloc[test_idx] = fitted.predict(X.iloc[test_idx])
-    df["ratio"] = np.expm1(predicted) / df.market_value_eur
+    # The same out-of-fold figures the app shows: a model scoring players it
+    # trained on flatters itself.
+    df["ratio"] = out_of_fold_predictions(df) / df.market_value_eur
 
     labels = pd.read_csv(LABELS, comment="#")
     merged = labels.merge(df[["name", "ratio"]], on="name", how="left")

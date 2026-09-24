@@ -336,11 +336,11 @@ Note this is a snapshot: the target is Transfermarkt's valuation *today*, and th
 dataset has no time dimension at all, so transfer-market inflation is already
 inside the numbers the model learns from rather than something it has to correct.
 
-The model still under-predicts the very top (top-10% predicted/actual ≈ 0.90) and
+The model still under-predicts the very top (top-10% predicted/actual ≈ 0.92) and
 players with no PL history - about a quarter of the squad, flagged by `has_hist_record`.
 
 The very top is the hardest place. Haaland, at €220m, is worth nearly twice anyone
-else in the league and the model asks about €180m (0.82): it pulls a lone extreme toward
+else in the league and the model asks about €200m (0.91): it pulls a lone extreme toward
 the rest. A premium for goals+assists per 90 above 0.5–0.7 does reach him — and
 overshoots to €255–268m while making the rest of the top tenth *worse*, so it is not
 used. Neither is weighting the stars more heavily, which moves him the wrong way.
@@ -370,6 +370,11 @@ is scored by a model fitted without them, because a model asked about a player i
 trained on flatters itself, and "is this player overvalued?" is exactly the
 question that flattery would corrupt.
 
+Each figure is averaged over twenty random splits. With a single split, a
+player's value depended on which others happened to share his fold, and moved by
+about 6% from one split to the next - Haaland anywhere between €181m and €230m.
+Averaged, the typical movement is about 1%, and it costs well under a second.
+
 See `frontend/README.md` for the interface itself.
 
 ## How confident is a prediction?
@@ -380,21 +385,21 @@ log value), so the ranges are ratios:
 
 | What backs the prediction | Players | 80% range | Label |
 |---|---|---|---|
-| Premier League history | 424 | ×0.55 – ×1.56 | moderate confidence |
-| Other leagues only | 60 | ×0.47 – ×1.57 | moderate confidence |
-| No record anywhere | 56 | ×0.28 – ×1.93 | low confidence |
+| Premier League history | 424 | ×0.55 – ×1.50 | moderate confidence |
+| Other leagues only | 60 | ×0.47 – ×1.63 | moderate confidence |
+| No record anywhere | 56 | ×0.30 – ×1.80 | low confidence |
 
 ```
 Geovany Quenda (Chelsea, Right Winger, age 19)
   No recent history in any covered league (prediction is weak)
-  Predicted value: €29,933,157
+  Predicted value: €31,509,526
   Confidence:      low confidence - no recent playing record in any covered league
-  80% range:       €8,330,894 - €57,816,918
+  80% range:       €9,322,271 - €56,577,473
 ```
 
 The ranges are checked, not just computed: calibrating on training folds and
-measuring on held-out ones, the stated 50% range contains the true value 48-52%
-of the time and the stated 80% range 75-84% of the time.
+measuring on held-out ones, the stated 50% range contains the true value 48-51%
+of the time and the stated 80% range 79-80% of the time.
 
 Two deliberate choices:
 
