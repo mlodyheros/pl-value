@@ -49,10 +49,6 @@ const seasonLabel = (year) => `${year}/${String(year + 1).slice(-2)}`;
 const minutesLabel = (n) => `${n.toLocaleString("en-GB")}′`;
 const surnameOf = (name) => name.split(" ").slice(-1)[0];
 const directionOf = (gapPct) => (gapPct > 0 ? "more" : "less");
-const codeOf = (player) => player.clubCode || player.club.slice(0, 3).toUpperCase();
-/** Three letters as on a TV score bug, with the full name for anyone who needs it. */
-const clubCode = (player, extra = "") =>
-  `<abbr class="code${extra}" title="${esc(player.club)}">${esc(codeOf(player))}</abbr>`;
 
 function ordinal(n) {
   const teen = n % 100 >= 11 && n % 100 <= 13;
@@ -154,9 +150,9 @@ function renderSuggestions(list, term) {
     button.className = "suggestion";
     button.setAttribute("role", "option");
     button.setAttribute("aria-selected", "false");
-    button.innerHTML = `${clubCode(player)}<span class="suggestion__name"></span><span class="suggestion__meta"></span><span class="suggestion__value"></span>`;
+    button.innerHTML = `<span class="suggestion__name"></span><span class="suggestion__meta"></span><span class="suggestion__value"></span>`;
     button.querySelector(".suggestion__name").textContent = player.name;
-    button.querySelector(".suggestion__meta").textContent = player.position;
+    button.querySelector(".suggestion__meta").textContent = `${player.club} · ${player.position}`;
     button.querySelector(".suggestion__value").textContent = money(player.marketValueEur);
     button.addEventListener("click", () => open(player.id));
     item.appendChild(button);
@@ -217,39 +213,34 @@ function spokenSummary(player) {
     : `Model estimate ${money(model)}. The market values this player at ${money(market)}. No calibrated range available.`;
 }
 
-/** The scoreboard: the contest between model and market, before any chart asks to be read. */
-function playerBoard(player, rank) {
+/** The four numbers a reader came for, before any chart asks to be read. */
+function statTiles(player, rank) {
   const { range, marketValueEur: market, predictedEur: model, peers } = player;
   const level = Math.round(player.confidence.level * 100);
   const direction = directionOf(player.gapPct);
-  const strap = [player.position, `Age ${player.age}`, player.nationality, contractText(player)].filter(Boolean);
   return `
-    <header class="scoreboard">
-      <p class="board__strap">${clubCode(player, " code--board")}${strap.map((s) => `<span>${esc(s)}</span>`).join("")}</p>
-      <h1 class="board__name">${esc(player.name)}</h1>
-      <dl class="board__cells">
-        <div class="cell">
-          <dt>Model estimate</dt>
-          <dd class="lamp lamp--model cell__value">${money(model)}</dd>
-          <dd class="cell__sub">${range ? `${level}% range ${money(range.lowEur)} – ${money(range.highEur)}` : "Range not calibrated"}</dd>
-        </div>
-        <div class="cell">
-          <dt>Market value</dt>
-          <dd class="lamp lamp--market cell__value">${money(market)}</dd>
-          <dd class="cell__sub">${esc(player.marketValueSource ?? "Transfermarkt")}</dd>
-        </div>
-        <div class="cell">
-          <dt>Model vs market</dt>
-          <dd class="lamp cell__value">${signed(player.gapPct)}</dd>
-          <dd class="cell__sub"><span class="key key--${direction}" aria-hidden="true"></span>Model asks ${direction}</dd>
-        </div>
-        <div class="cell">
-          <dt>Among ${esc(positionPlural(peers.position))}</dt>
-          <dd class="lamp cell__value">${ordinal(rank)}<span class="cell__of">/${peers.count}</span></dd>
-          <dd class="cell__sub">by market value</dd>
-        </div>
-      </dl>
-    </header>`;
+    <div class="kpis">
+      <section class="card kpi">
+        <p class="kpi__label">Model estimate</p>
+        <p class="kpi__value kpi__value--keyed"><span class="key key--dot key--model" aria-hidden="true"></span>${money(model)}</p>
+        <p class="kpi__sub">${range ? `${level}% range ${money(range.lowEur)} – ${money(range.highEur)}` : "Range not calibrated"}</p>
+      </section>
+      <section class="card kpi">
+        <p class="kpi__label">Market value</p>
+        <p class="kpi__value kpi__value--keyed"><span class="key key--dot key--market" aria-hidden="true"></span>${money(market)}</p>
+        <p class="kpi__sub">${esc(player.marketValueSource ?? "Transfermarkt")} valuation</p>
+      </section>
+      <section class="card kpi">
+        <p class="kpi__label">Model vs market</p>
+        <p class="kpi__value">${signed(player.gapPct)}</p>
+        <p class="kpi__sub kpi__dir"><span class="key key--${direction}" aria-hidden="true"></span>Model asks ${direction}</p>
+      </section>
+      <section class="card kpi">
+        <p class="kpi__label">Among ${esc(positionPlural(peers.position))}</p>
+        <p class="kpi__value">${ordinal(rank)} <span class="kpi__of">of ${peers.count}</span></p>
+        <p class="kpi__sub">by market value</p>
+      </section>
+    </div>`;
 }
 
 function valuationChart(player) {
@@ -298,12 +289,12 @@ function feeCard(player) {
       </header>
       <div class="fee__figures">
         <div>
-          <p class="fee__label">A Premier League club would likely pay</p>
-          <p class="fee__value">${money(fee.premierLeagueEur)}</p>
+          <p class="kpi__label">A Premier League club would likely pay</p>
+          <p class="kpi__value">${money(fee.premierLeagueEur)}</p>
         </div>
         <div>
-          <p class="fee__label">A club abroad</p>
-          <p class="fee__value">${money(fee.abroadEur)}</p>
+          <p class="kpi__label">A club abroad</p>
+          <p class="kpi__value">${money(fee.abroadEur)}</p>
         </div>
       </div>
       <p class="chart__note">Learned from ${fee.transfers.toLocaleString("en-GB")} real transfers since 2019:
@@ -418,31 +409,11 @@ function contractText(player) {
   return `Contract to ${when}${years < 1 ? " · under a year left" : ""}`;
 }
 
-/** The board's lead: the two widest disagreements, as a ground shows the scores that matter. */
-function renderHeroBoard(ranks, meta) {
-  el("hero-season").textContent =
-    `Premier League ${seasonLabel(thisSeason)} · after gameweek ${meta.seasonGameweeks}`;
-  const fixture = (player) => {
-    const direction = directionOf(player.gapPct);
-    return `
-      <li><button class="fixture" type="button" data-id="${player.id}">
-        <span class="fixture__side">Model asks ${direction}</span>
-        <span class="fixture__gap"><span class="key key--${direction}" aria-hidden="true"></span>${signed(player.gapPct)}</span>
-        <span class="fixture__who">${clubCode(player, " code--board")}<span class="fixture__name">${esc(player.name)}</span></span>
-        <span class="fixture__score">
-          <span class="lamp lamp--market">${money(player.marketValueEur)}</span>
-          <span class="fixture__arrow" aria-hidden="true">→</span>
-          <span class="lamp lamp--model">${money(player.predictedEur)}</span>
-        </span>
-      </button></li>`;
-  };
-  const board = el("hero-board");
-  board.innerHTML = `
-    <p class="board__strap"><span>Biggest disagreements</span><span>market → model</span></p>
-    <ol class="fixtures">${fixture(ranks.underrated[0])}${fixture(ranks.overrated[0])}</ol>`;
-  for (const button of board.querySelectorAll(".fixture")) {
-    button.addEventListener("click", () => open(Number(button.dataset.id)));
-  }
+function metaChips(player) {
+  return [player.position, `Age ${player.age}`, player.nationality, player.club, contractText(player)]
+    .filter(Boolean)
+    .map((text) => `<li class="chip">${esc(text)}</li>`)
+    .join("");
 }
 
 // Every minute of a 38-game season: the fixed end of the minutes scale, so a
@@ -622,7 +593,11 @@ async function open(id) {
 
   nodes.player.innerHTML = `
     <button class="back" type="button">← ${cameFrom}</button>
-    ${playerBoard(player, rank)}
+    <header class="player__head">
+      <h1 class="player__name">${esc(player.name)}</h1>
+      <ul class="player__meta" aria-label="Profile">${metaChips(player)}</ul>
+    </header>
+    ${statTiles(player, rank)}
     ${valuationChart(player)}
     ${feeCard(player)}
     ${verdict(player)}
@@ -689,7 +664,7 @@ function compareRow(player, scale) {
       <div class="compare__who">
         <a class="compare__name" href="#p${player.id}">${esc(player.name)}</a>
         <span class="compare__meta">${esc(player.club)} · ${esc(player.position)} · ${player.age}</span>
-        <span class="compare__figures">
+        <span class="compare__figures kpi__dir">
           <span class="key key--${direction}" aria-hidden="true"></span>Model asks ${Math.abs(Math.round(player.gapPct))}% ${direction}
         </span>
       </div>
@@ -725,21 +700,8 @@ async function compare(leftId, rightId) {
 
   nodes.compare.innerHTML = `
     <button class="back" type="button">← ${esc(pair[0].name)}</button>
-    <h1 class="visually-hidden">${esc(pair[0].name)} and ${esc(pair[1].name)}</h1>
-    <header class="scoreboard">
-      <p class="board__strap"><span>Head to head</span><span>model estimate, market below</span></p>
-      <div class="h2h__line">
-        <a class="h2h__team h2h__team--home" href="#p${pair[0].id}">${clubCode(pair[0], " code--board")}<span class="h2h__name">${esc(surnameOf(pair[0].name))}</span></a>
-        <span class="lamp lamp--model h2h__score h2h__score--home">${money(pair[0].predictedEur)}</span>
-        <span class="h2h__dash" aria-hidden="true">–</span>
-        <span class="lamp lamp--model h2h__score h2h__score--away">${money(pair[1].predictedEur)}</span>
-        <a class="h2h__team h2h__team--away" href="#p${pair[1].id}"><span class="h2h__name">${esc(surnameOf(pair[1].name))}</span>${clubCode(pair[1], " code--board")}</a>
-      </div>
-      <p class="h2h__market">
-        <span>${esc(surnameOf(pair[0].name))} · market ${money(pair[0].marketValueEur)}</span>
-        <span>${esc(surnameOf(pair[1].name))} · market ${money(pair[1].marketValueEur)}</span>
-      </p>
-    </header>
+    <h1 class="compare__title">${esc(pair[0].name)} and ${esc(pair[1].name)}</h1>
+    <p class="compare__lead">Both on one scale, so each range can be read against the other.</p>
     <section class="card compare__card">
       <header class="chart__head">
         <h2 class="chart__title">What the model allows</h2>
@@ -774,8 +736,8 @@ function rankList(target, players, largest) {
       ${Charts.gapBar(player.gapPct, largest)}
       <span class="rank__gap"></span>`;
     button.querySelector(".rank__name").textContent = player.name;
-    button.querySelector(".rank__club").innerHTML =
-      `${clubCode(player)}<span>${money(player.marketValueEur)} → ${money(player.predictedEur)}</span>`;
+    button.querySelector(".rank__club").textContent =
+      `${player.club} · ${money(player.marketValueEur)} → ${money(player.predictedEur)}`;
     button.querySelector(".rank__gap").textContent = signed(player.gapPct);
     button.addEventListener("click", () => open(player.id));
     item.appendChild(button);
@@ -829,7 +791,7 @@ function renderGrid() {
       <span class="grid__gap" role="cell"></span>`;
     const figures = button.querySelectorAll(".grid__figure");
     button.querySelector(".grid__name").textContent = player.name;
-    button.querySelector(".grid__meta").innerHTML = `${clubCode(player)}<span>${esc(player.position)}</span>`;
+    button.querySelector(".grid__meta").textContent = `${player.club} · ${player.position}`;
     figures[0].textContent = money(player.marketValueEur);
     figures[1].textContent = money(player.predictedEur);
     button.querySelector(".grid__gap").textContent = signed(player.gapPct);
@@ -914,7 +876,6 @@ function route() {
     const largest = Math.max(1, ...[...ranks.underrated, ...ranks.overrated].map((p) => Math.abs(p.gapPct)));
     rankList(nodes.underrated, ranks.underrated, largest);
     rankList(nodes.overrated, ranks.overrated, largest);
-    renderHeroBoard(ranks, meta);
 
     for (const button of document.querySelectorAll(".view")) {
       button.addEventListener("click", () => switchView(button.dataset.view));

@@ -187,6 +187,15 @@ def test_rebuilding_the_dataset_is_picked_up_without_a_restart(tmp_path, monkeyp
     api.get_state.cache_clear()
 
 
+def test_the_page_and_its_assets_are_revalidated_not_guessed_fresh(client):
+    """Without this a browser can keep running an old app.js after an update."""
+    for path in ("/", "/assets/app.js", "/assets/styles.css"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+    assert "cache-control" not in client.get("/api/meta").headers
+
+
 def test_player_detail_has_no_fee_estimate_without_the_fee_model(client):
     assert client.get("/api/players/0").json()["feeEstimate"] is None
 

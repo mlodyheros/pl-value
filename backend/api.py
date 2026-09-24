@@ -249,6 +249,19 @@ def _player_payload(
 app = FastAPI(title="PL Value Predictor", docs_url="/api/docs")
 
 
+@app.middleware("http")
+async def revalidate_the_page(request, call_next):
+    """The page and its assets change whenever the frontend does. Without a
+    Cache-Control header a browser guesses how long a file stays fresh, and after
+    an update it can run the old app.js against the new stylesheet. "no-cache"
+    still lets it keep the files; it only has to ask first, and an unchanged file
+    costs a 304."""
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers.setdefault("cache-control", "no-cache")
+    return response
+
+
 @app.exception_handler(DatasetMissing)
 def dataset_missing(request, exc: DatasetMissing) -> JSONResponse:
     """Answer the one setup mistake anyone will make with instructions."""
