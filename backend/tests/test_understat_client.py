@@ -7,8 +7,9 @@ from backend.sources import understat_client as us
 
 def _players():
     return [
-        {"player_name": "Bradley Barcola", "position": "F M S", "time": "2223", "games": "34",
-         "goals": "14", "assists": "9", "xG": "11.2", "xA": "7.1"},
+        {"id": "8200", "player_name": "Bradley Barcola", "team_title": "Paris Saint Germain",
+         "position": "F M S", "time": "2223", "games": "34", "goals": "14", "assists": "9",
+         "xG": "11.2", "xA": "7.1", "xGChain": "25.5"},
         {"player_name": "Antonio Sivera", "position": "GK", "time": "3060", "games": "34",
          "goals": "0", "assists": "0", "xG": "0", "xA": "0"},
         {"player_name": "Sub Stitute", "position": "S", "time": None, "games": "2",
@@ -54,8 +55,9 @@ def test_build_index_normalises_names_and_flattens(monkeypatch):
     assert set(index) == {"bradley barcola", "antonio sivera", "sub stitute"}
     record = index["bradley barcola"][0]
     assert record == {
-        "league": "Ligue 1", "season": 2024, "position": "F M S", "minutes": 2223,
-        "goals": 14, "assists": 9, "season_minutes": 3060,
+        "id": "8200", "league": "Ligue 1", "season": 2024, "team": "Paris Saint Germain",
+        "position": "F M S", "minutes": 2223, "goals": 14, "assists": 9, "xgchain": 25.5,
+        "season_minutes": 3060,
     }
     # Null stats must not break parsing.
     assert index["sub stitute"][0]["minutes"] == 0
@@ -109,3 +111,12 @@ def test_get_league_players_sends_ajax_header_and_caches(monkeypatch, tmp_path):
     # Without this header Understat answers 404.
     assert calls[0][1]["X-Requested-With"] == "XMLHttpRequest"
     assert json.loads((tmp_path / "La_liga_2024.json").read_text()) == _players()
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [("Nico O&#039;Reilly", "nico o'reilly"), ("Emile Smith-Rowe", "emile smith rowe"),
+     ("Rayan Aït-Nouri", "rayan ait nouri"), ("  Jérémy   DOKU ", "jeremy doku")],
+)
+def test_name_key_unescapes_and_treats_hyphens_as_spaces(name, expected):
+    assert us.name_key(name) == expected

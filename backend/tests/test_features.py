@@ -291,3 +291,15 @@ def test_bps_rates_need_five_matches_and_a_pl_record():
 
     assert df["career_bps_per90"].tolist() == pytest.approx([30.0, 0.0, 0.0])
     assert df["recent_bps_per90"].tolist() == pytest.approx([30.0, 0.0, 0.0])
+
+
+def test_xgchain_is_measured_against_the_position_group():
+    df = add_derived_features(pd.DataFrame([
+        {"position": "Defensive Midfield", "us_minutes": 3600, "us_xgchain": 19.2},   # 0.48 per 90
+        {"position": "Centre-Forward", "us_minutes": 3600, "us_xgchain": 19.2},       # the same rate
+        {"position": "Centre-Forward", "us_minutes": 300, "us_xgchain": 10.0},        # too few minutes
+    ]).assign(age=25, career_minutes_share=0.5, recent_minutes_share=0.5, minutes_share=0.5,
+              has_transfer_fee=0, career_gi_per90=0.1))
+
+    assert df["xgchain_vs_position"].tolist() == pytest.approx([1.0, 0.8, 0.0])
+    assert df["has_quality_record"].tolist() == [1.0, 1.0, 0.0]

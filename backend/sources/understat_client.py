@@ -16,6 +16,7 @@ change, so the cache does not expire.
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import time
@@ -47,6 +48,15 @@ def _throttle() -> None:
 
 def _slug(league: str) -> str:
     return league.replace(" ", "_")
+
+
+def name_key(name: str) -> str:
+    """Join key for a name, on both sides of the match.
+
+    Understat escapes apostrophes ("Nico O&#039;Reilly") and hyphenates where
+    Transfermarkt uses a space ("Emile Smith-Rowe"); both used to cost a match.
+    """
+    return " ".join(normalize_name(html.unescape(name)).replace("-", " ").split())
 
 
 def get_league_players(league: str, season: int) -> list[dict]:
@@ -86,14 +96,17 @@ def build_index(
             players = get_league_players(league, season)
             season_minutes = _season_minutes(players)
             for player in players:
-                index.setdefault(normalize_name(player["player_name"]), []).append(
+                index.setdefault(name_key(player["player_name"]), []).append(
                     {
+                        "id": str(player.get("id", "")),
                         "league": league,
                         "season": season,
+                        "team": html.unescape(player.get("team_title") or ""),
                         "position": player.get("position") or "",
                         "minutes": int(player.get("time") or 0),
                         "goals": int(player.get("goals") or 0),
                         "assists": int(player.get("assists") or 0),
+                        "xgchain": float(player.get("xGChain") or 0),
                         "season_minutes": season_minutes,
                     }
                 )

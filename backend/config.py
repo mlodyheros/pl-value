@@ -18,6 +18,18 @@ UNDERSTAT_DELAY_SECONDS = 1.0
 # they arrived. Portugal, the Championship and the Eredivisie aren't covered by
 # Understat at all, which is why some new arrivals still have no history.
 UNDERSTAT_LEAGUES = ["La liga", "Bundesliga", "Serie A", "Ligue 1", "RFPL"]
+# The quality measure reads every league Understat covers, the PL included, so
+# players from abroad and from the PL are scored the same way.
+UNDERSTAT_QUALITY_LEAGUES = ["EPL", *UNDERSTAT_LEAGUES]
+# FPL's club names where Understat's differ, for matching a player within his club.
+UNDERSTAT_TEAM_NAMES = {
+    "Man City": "Manchester City",
+    "Man Utd": "Manchester United",
+    "Spurs": "Tottenham",
+    "Nott'm Forest": "Nottingham Forest",
+    "Newcastle": "Newcastle United",
+    "Wolves": "Wolverhampton Wanderers",
+}
 
 TRANSFERMARKT_BASE_URL = "https://www.transfermarkt.com"
 TRANSFERMARKT_HEADERS = {
