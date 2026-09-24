@@ -108,3 +108,8 @@ def test_get_bootstrap_static_refetches_when_stale_or_forced(monkeypatch, tmp_pa
 def test_team_names_lists_the_seasons_clubs():
     assert fpl_client.team_names(_payload()) == ["Man City"]
     assert fpl_client.team_names({}) == []
+
+
+def test_team_codes_map_names_to_tv_codes():
+    data = {"teams": [{"name": "Man City", "short_name": "MCI"}, {"name": "Spurs", "short_name": "TOT"}]}
+    assert fpl_client.team_codes(data) == {"Man City": "MCI", "Spurs": "TOT"}

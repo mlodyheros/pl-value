@@ -77,9 +77,11 @@ def test_list_players_is_small_enough_to_send_once(client):
 
     assert len(players) == 120
     assert set(players[0]) == {
-        "id", "name", "club", "position", "age", "nationality",
+        "id", "name", "club", "clubCode", "position", "age", "nationality",
         "marketValueEur", "predictedEur", "gapPct", "tier",
     }
+    # Without a code in the data, the first three letters of the club stand in.
+    assert players[0]["clubCode"] == players[0]["club"][:3].upper()
 
 
 def test_player_detail_carries_range_and_evidence(client):

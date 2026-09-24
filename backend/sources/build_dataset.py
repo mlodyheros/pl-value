@@ -372,10 +372,11 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
     gameweeks = fpl_client.finished_gameweeks(fpl_data)
     logger.info("Found %d PL clubs; %d finished gameweeks", len(club_names), gameweeks)
 
+    codes = fpl_client.team_codes(fpl_data)
     # Club by club, so each player carries the FPL name of their club: the
     # last-resort name match only looks among that club's FPL players.
     squads = [
-        {**player, "fpl_team": club_name}
+        {**player, "fpl_team": club_name, "club_code": codes.get(club_name, "")}
         for club_name in club_names
         for player in tm.fetch_league_squads([club_name])
     ]
