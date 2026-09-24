@@ -21,15 +21,22 @@ Most value sites print a single confident figure. This one draws the range the
 model actually earns, marks the market's figure on the same scale, and says
 plainly whether the market falls inside it.
 
-- **Where it disagrees** — the players the model and the market differ on most.
-- **All players** — every one of the 540, filtered by club and position and
-  sorted four ways. The filters live in the URL, so a view can be shared.
+- **Where it disagrees** — the players the model and the market differ on most,
+  with a link to the rest of that list: every player above the same value
+  floor, biggest gaps first.
+- **All players** — every one of the 540, filtered by club, position and market
+  value. Click a column header to sort by it, and again to turn the order round;
+  the header stays in view while the list scrolls. The filters and the order
+  live in the URL, so a view can be shared, and coming back from a player lands
+  on the row you left, with that row briefly marked.
 - **Player** — four stat tiles (model estimate, market value, the gap, rank
-  among the same position), then the range, the verdict, minutes season by
-  season, every same-position player as a dot, and what evidence the model
-  had. Players with no recent playing record get a visibly wider range and a
-  low-confidence label rather than a falsely precise number.
-- **Compare** — two players' ranges drawn on one shared scale.
+  among the same position), then the range and, straight under it, the
+  verdict; then minutes season by season, every same-position player as a dot,
+  and what evidence the model had. Players with no recent playing record get a
+  visibly wider range and a low-confidence label rather than a falsely precise
+  number. A search box in the header picks someone to compare with.
+- **Compare** — two players' ranges drawn on one shared scale, the figures
+  behind them side by side, and a search box to swap in someone else.
 
 Each player page also shows what a club would likely pay, from the second model
 (`backend/fee_model.py`): one figure for a Premier League buyer and one for a buyer
@@ -59,8 +66,13 @@ player, the page says so: that valuation has usually not caught up with the fee 
   the table (the peer strip links to that position in the table).
 - Bricolage Grotesque sets names and headlines. Public Sans sets the text and
   the big numbers; IBM Plex Mono is used where figures must line up in columns.
-- Keyboard: `↑`/`↓` move through search results, `Enter` opens, `Esc` closes.
-  Focus is always visible, and `prefers-reduced-motion` is respected.
+- **Search** shows each match's market value, the model's estimate and the
+  gap, so a name can be judged before it is opened.
+- Keyboard: `/` jumps to the search from anywhere, `↑`/`↓` move through the
+  results, `Enter` opens, `Esc` closes. Focus is always visible, and
+  `prefers-reduced-motion` is respected.
+- Every view shares one centred column, so nothing jumps sideways between
+  pages on a wide screen.
 - Every colour used for text clears WCAG AA (4.5:1) in both themes, and chart
   marks clear 3:1. Each chart also has a sentence with the same figures for
   screen readers.

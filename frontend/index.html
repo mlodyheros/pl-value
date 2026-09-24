@@ -26,8 +26,10 @@
     <svg class="finder__icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
          stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>
     <label class="visually-hidden" for="q">Search a player</label>
-    <input id="q" type="search" placeholder="Player, club, position or country" autocomplete="off"
-           role="combobox" aria-expanded="false" aria-controls="suggestions" aria-autocomplete="list">
+    <input id="q" class="finder__input" type="search" placeholder="Player, club, position or country" autocomplete="off"
+           role="combobox" aria-expanded="false" aria-controls="suggestions" aria-autocomplete="list"
+           aria-keyshortcuts="/">
+    <kbd class="finder__key" aria-hidden="true" title="Press / to search">/</kbd>
     <ul id="suggestions" class="suggestions" role="listbox" aria-label="Matching players" hidden></ul>
   </search>
 
@@ -69,7 +71,10 @@
           <ol class="ranks" id="overrated"></ol>
         </section>
       </div>
-      <p class="note" id="tables-note"></p>
+      <div class="board__foot">
+        <p class="note" id="tables-note"></p>
+        <a class="panel__link" id="gaps-all" href="#all?min=15&amp;sort=gap">Every player worth €15m or more, biggest gaps first →</a>
+      </div>
     </div>
 
     <div id="view-all" hidden>
@@ -81,6 +86,15 @@
         <label class="field">
           <span class="field__label">Position</span>
           <select id="filter-position"><option value="">Every position</option></select>
+        </label>
+        <label class="field">
+          <span class="field__label">Market value</span>
+          <select id="filter-min">
+            <option value="">Any</option>
+            <option value="5">€5m or more</option>
+            <option value="15">€15m or more</option>
+            <option value="50">€50m or more</option>
+          </select>
         </label>
         <label class="field">
           <span class="field__label">Sort by</span>
@@ -95,15 +109,15 @@
       </div>
 
       <div class="grid card" role="table" aria-label="All players">
-        <div class="grid__head" role="row">
-          <span role="columnheader">Player</span>
-          <span role="columnheader">Market</span>
-          <span role="columnheader">Model</span>
+        <div class="grid__head" role="row" id="grid-head">
+          <span role="columnheader" data-sort="name"><button class="sorter" type="button">Player</button></span>
+          <span role="columnheader" data-sort="value"><button class="sorter" type="button">Market</button></span>
+          <span role="columnheader" data-sort="predicted"><button class="sorter" type="button">Model</button></span>
           <span class="grid__axis" aria-hidden="true">
             <span><span class="key key--less"></span>asks less</span>
             <span>asks more<span class="key key--more"></span></span>
           </span>
-          <span role="columnheader">Gap</span>
+          <span role="columnheader" data-sort="gap"><button class="sorter" type="button">Gap</button></span>
         </div>
         <div id="grid-rows"></div>
       </div>
