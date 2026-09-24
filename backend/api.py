@@ -3,10 +3,12 @@
 The frontend never imports the pipeline; it asks this layer, so the two stay
 separable.
 
-Predictions served here are **out-of-fold**: every player is scored by a model
+Predictions served here are **out-of-fold**: every player is scored by models
 fitted without them. A model asked about a player it was trained on flatters
 itself, and "is this player overvalued?" is exactly the question that flattery
-would corrupt. Computing them costs one extra fit per fold at startup.
+would corrupt. The figure is averaged over twenty random splits, so it does
+not hang on which other players happened to share a fold; the hundred quick fits
+take well under a second at startup.
 """
 
 from __future__ import annotations
@@ -20,7 +22,6 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sklearn.model_selection import KFold
 
 from backend import confidence, fee_model
 from backend.config import (
@@ -29,8 +30,8 @@ from backend.config import (
     PROJECT_ROOT,
     SEASONS,
 )
-from backend.features import add_derived_features, split_features_target
-from backend.model import build_pipeline, cross_validate_model, fit_pipeline
+from backend.features import add_derived_features
+from backend.model import cross_validate_model, out_of_fold_predictions
 from backend.sources import fpl_archive_client as archive
 from backend.sources import understat_client as understat
 from backend.sources.names import normalize_name
@@ -39,15 +40,6 @@ logger = logging.getLogger(__name__)
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 CONFIDENCE_LEVEL = 0.8
-
-
-def _out_of_fold_predictions(df: pd.DataFrame, n_splits: int = 5) -> np.ndarray:
-    X, y = split_features_target(df)
-    predicted = pd.Series(0.0, index=df.index)
-    for train_idx, test_idx in KFold(n_splits, shuffle=True, random_state=42).split(X):
-        fitted = fit_pipeline(build_pipeline(), X.iloc[train_idx], y.iloc[train_idx])
-        predicted.iloc[test_idx] = fitted.predict(X.iloc[test_idx])
-    return np.expm1(predicted.to_numpy())
 
 
 class DatasetMissing(RuntimeError):
@@ -59,7 +51,7 @@ def _build_state(dataset_stamp: float, calibration_stamp: float | None = None) -
     """Keyed on the dataset's and the calibration's mtimes, so a refresh -
     which rewrites both, one after the other - is picked up whole."""
     df = add_derived_features(pd.read_csv(PROCESSED_DATASET_PATH))
-    df["predicted_eur"] = _out_of_fold_predictions(df)
+    df["predicted_eur"] = out_of_fold_predictions(df)
     df["tier"] = confidence.coverage_tiers(df)
     df["gap_pct"] = (df.predicted_eur / df.market_value_eur - 1) * 100
 

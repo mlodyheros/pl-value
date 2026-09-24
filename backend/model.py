@@ -58,6 +58,32 @@ def fit_pipeline(pipeline: Pipeline, X: pd.DataFrame, y_log: pd.Series) -> Pipel
     return pipeline.fit(X, y_log, regressor__sample_weight=weights)
 
 
+# Each player is valued by models that never saw him. With one random split,
+# that figure depends on which other players happened to share his fold: a
+# typical player's value moved by 6% from one split to the next, and a lone
+# extreme like Haaland anywhere between EUR181m and EUR230m. Averaging twenty
+# splits brings the typical movement down to about 1% (Haaland EUR196-207m),
+# for well under a second of fitting.
+OOF_REPEATS = 20
+
+
+def out_of_fold_predictions(
+    df: pd.DataFrame, n_splits: int = 5, n_repeats: int = OOF_REPEATS, random_state: int = 42
+) -> np.ndarray:
+    """Each player's value predicted by models fitted without him, averaged in
+    log space over ``n_repeats`` different random splits."""
+    X, y = split_features_target(df)
+    total = np.zeros(len(df))
+    for repeat in range(n_repeats):
+        folds = KFold(n_splits=n_splits, shuffle=True, random_state=random_state + repeat)
+        predicted = np.zeros(len(df))
+        for train_idx, test_idx in folds.split(X):
+            fitted = fit_pipeline(build_pipeline(), X.iloc[train_idx], y.iloc[train_idx])
+            predicted[test_idx] = fitted.predict(X.iloc[test_idx])
+        total += predicted
+    return np.expm1(total / n_repeats)
+
+
 def train(df: pd.DataFrame) -> tuple[Pipeline, dict]:
     X_train, X_test, y_train, y_test = train_test_split_dataset(df)
 

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import KFold
 
 from backend.features import split_features_target
 
@@ -71,18 +70,17 @@ def calibrate(
     """Measure each tier's error spread from out-of-fold predictions.
 
     Out-of-fold matters: errors measured on the training data would look far
-    smaller than the ones real predictions actually make.
+    smaller than the ones real predictions actually make. They are the same
+    averaged out-of-fold figures the app serves, so the ranges fit the numbers
+    they are drawn around.
     """
-    from backend.model import build_pipeline, fit_pipeline
+    from backend.model import out_of_fold_predictions
 
-    X, y = split_features_target(df)
-    predicted = pd.Series(0.0, index=df.index)
-    for train_idx, test_idx in KFold(n_splits, shuffle=True, random_state=random_state).split(X):
-        fitted = fit_pipeline(build_pipeline(), X.iloc[train_idx], y.iloc[train_idx])
-        predicted.iloc[test_idx] = fitted.predict(X.iloc[test_idx])
+    _, y = split_features_target(df)
+    predicted = np.log1p(out_of_fold_predictions(df, n_splits=n_splits, random_state=random_state))
 
     # log(predicted) - log(actual); positive means the model asked too much.
-    residuals = (predicted - y).to_numpy()
+    residuals = predicted - y.to_numpy()
     tiers = coverage_tiers(df).to_numpy()
 
     calibration = {_OVERALL: {"n": len(residuals), "levels": _quantiles(residuals, levels)}}
