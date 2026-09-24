@@ -80,7 +80,7 @@ the experiment log behind the modelling choices (run the dataset build first).
 
 ## Current performance
 
-5-fold cross-validated on ~540 players: **R² ≈ 0.83** (on log value), **MAE ≈ €6.1m**.
+5-fold cross-validated on ~540 players: **R² ≈ 0.83** (on log value), **MAE ≈ €6.0m**.
 Trust the CV numbers over the single 80/20 split, which swings by ~0.1 R² between
 seeds at this dataset size.
 
@@ -103,7 +103,8 @@ seeds at this dataset size.
 | + older regulars | 0.77 | €6.4m | €12.5m |
 | + backup keepers, and output kept up over a career | 0.80 | €6.3m | €12.2m |
 | + names that actually join | 0.82 | €6.1m | €11.7m |
-| + **Champions League minutes last season** | **0.83** | **€6.1m** | **€13.2m**\* |
+| + Champions League minutes last season | 0.83 | €6.1m | €13.2m\* |
+| + **a season below a player's own level** | **0.83** | **€6.0m** | **€13.3m**\* |
 
 \* The top-10% column is the noisiest: it moves by up to ±€1.3m from one random
 split to the next. Averaged over 20 splits, the Champions League term cuts overall
@@ -163,6 +164,19 @@ Findings worth keeping in mind:
   among the dearest tenth (€12.4m → €12.5m), because the age curve refits and
   young stars ease down 1–3%. It fixes the error the reader flagged most
   emphatically.
+- **A second round of labels, and a quality score that was unfair.** Re-judging
+  seven players and adding three found two patterns: young players who play now
+  (Kroupi, Rayan, Mainoo, Scott) and players back from an interrupted season (Isak,
+  20% of minutes last season against a career 53%) were both too cheap. The second
+  has a fix - the shortfall of last season below the career share, since a season
+  below one's own level is more often an injury than a demotion: MAE €6.00m → €5.96m
+  (6 standard errors), Isak 0.80 → 0.85 of his market value. FPL's bonus points per
+  90, the one quality score covering every position, did even better on the
+  aggregate (typical miss 31% → 29%) and was still turned down: it exists only for
+  players with a PL record, so newcomers from abroad have no score while everyone
+  they are compared with does, and Bouaddi and Barcola - both flagged as too cheap -
+  fell further. The labels test caught it. Young players who play now remain the
+  open problem; three features aimed at them made nothing better.
 - **Last season's Champions League says what domestic minutes cannot.** Minutes
   in it (divided by 90) reached where nothing else had: Haaland from 0.82 of his
   market value to 0.91, Rice from 0.86 to 0.97, the dearest dozen from 0.96 to 1.01
@@ -218,62 +232,64 @@ the top 10%, at some cost in log-R².
 
 ```
 log(1 + value) = 16.46
-   + 1.10·z(age) − 1.32·z(age²) − 0.16·z(age−23)⁺ − 0.36·z(age−29)⁺
+   + 1.12·z(age) − 1.38·z(age²) − 0.14·z(age−23)⁺ − 0.35·z(age−29)⁺
    + 0.12·z(minutes_share)                              this season
-   + 0.10·z(career_minutes_share) + 0.19·z(recent_minutes_share)
+   + 0.04·z(career_minutes_share) + 0.25·z(recent_minutes_share)
+   + 0.05·z(career share − last season's share)⁺
    + 0.16·z(career_gi_per90) + 0.04·z(career_gi_per90 × career_minutes)
-   + 0.69·z(log_transfer_fee) − 0.68·z(has_transfer_fee) + 0.03·z(years_since_fee)
-   − 0.25·z(idle) + 0.07·z(idle × career) + 0.18·z(idle × fee)
-   + 0.08·z((23−age)⁺ × recent_minutes) + 0.08·z((age−29)⁺ × career_minutes)
+   + 0.69·z(log_transfer_fee) − 0.67·z(has_transfer_fee) + 0.02·z(years_since_fee)
+   − 0.24·z(idle) + 0.06·z(idle × career) + 0.18·z(idle × fee)
+   + 0.07·z((23−age)⁺ × recent_minutes) + 0.08·z((age−29)⁺ × career_minutes)
    − 0.25·z(backup_keeper) + 0.10·z(champions_league_matches_last_season)
-   + 0.17·z(has_fpl_record) + 0.12·z(has_hist_record) − 0.20·z(has_any_history)
+   + 0.17·z(has_fpl_record) + 0.12·z(has_hist_record) − 0.21·z(has_any_history)
    + position effect + club effect
 ```
 
 `z(x)` is the standardised feature, so the coefficients compare importance. Club
-effects run from ×1.7 (Man City) to ×0.6 (Hull City) against Bournemouth;
+effects run from ×1.6 (Man City) to ×0.6 (Hull City) against Bournemouth;
 goalkeepers who play sit ×0.91 against attacking midfielders, and backups well
 below that. The age term alone peaks at about 22, earlier than the raw data's
 mid-20s, because the minutes features already carry most of what age would
 otherwise say.
 
 The same model in plain units, to compute by hand -
-`value ≈ e^(12.549 + Σ coefficient × feature) × club × position`:
+`value ≈ e^(12.561 + Σ coefficient × feature) × club × position`:
 
 | Feature (unit) | Coefficient |
 |---|---|
-| age | +0.2582 |
-| age² | −0.0058 |
-| (age − 23), when positive | −0.0467 |
-| (age − 29), when positive | −0.2277 |
-| in this season's FPL list (0/1) | +1.2359 |
-| share of this season's minutes (0–1) | +0.3176 |
-| has a PL record (0/1) | +0.2816 |
-| has any record (0/1) | −0.6575 |
-| career share of minutes, last 4 seasons (0–1) | +0.3398 |
-| goals + assists per 90 | +0.6723 |
-| share of last season's minutes (0–1) | +0.5794 |
-| has a transfer fee (0/1) | −1.8141 |
-| ln(transfer fee in €) | +0.1093 |
-| not playing this season (0/1) | −0.4945 |
-| not playing × career share | +0.3249 |
-| not playing × ln(fee) | +0.0232 |
-| (23 − age), when positive, × last season's share | +0.1992 |
-| (age − 29), when positive, × career share | +0.1111 |
-| years since the fee | +0.0095 |
-| backup keeper (0/1) | −1.6539 |
-| goals + assists per 90 × career share | +0.3514 |
-| Champions League matches last season (minutes ÷ 90) | +0.0341 |
+| age | +0.2635 |
+| age² | −0.0061 |
+| (age − 23), when positive | −0.0394 |
+| (age − 29), when positive | −0.2215 |
+| in this season's FPL list (0/1) | +1.2310 |
+| share of this season's minutes (0–1) | +0.3082 |
+| has a PL record (0/1) | +0.2886 |
+| has any record (0/1) | −0.6831 |
+| career share of minutes, last 4 seasons (0–1) | +0.1508 |
+| goals + assists per 90 | +0.6703 |
+| share of last season's minutes (0–1) | +0.7752 |
+| career share minus last season's, when positive | +0.3775 |
+| has a transfer fee (0/1) | −1.8030 |
+| ln(transfer fee in €) | +0.1091 |
+| not playing this season (0/1) | −0.4834 |
+| not playing × career share | +0.3005 |
+| not playing × ln(fee) | +0.0230 |
+| (23 − age), when positive, × last season's share | +0.1859 |
+| (age − 29), when positive, × career share | +0.1123 |
+| years since the fee | +0.0093 |
+| backup keeper (0/1) | −1.6358 |
+| goals + assists per 90 × career share | +0.3630 |
+| Champions League matches last season (minutes ÷ 90) | +0.0361 |
 
-Clubs: Man City ×1.66, Arsenal ×1.62, Chelsea ×1.48, Man Utd ×1.48, Liverpool ×1.41,
-Aston Villa ×1.23, Nott'm Forest ×1.12, Crystal Palace ×1.10, Tottenham ×1.10,
-Brighton ×1.10, Everton ×1.01, Bournemouth ×1.00, Newcastle ×0.96, Brentford ×0.95,
-Fulham ×0.94, Ipswich ×0.91, Sunderland ×0.88, Leeds ×0.86, Coventry ×0.86, Hull ×0.61.
+Clubs: Man City ×1.64, Arsenal ×1.62, Man Utd ×1.48, Chelsea ×1.47, Liverpool ×1.41,
+Aston Villa ×1.22, Nott'm Forest ×1.13, Crystal Palace ×1.11, Brighton ×1.10,
+Tottenham ×1.09, Everton ×1.01, Bournemouth ×1.00, Newcastle ×0.96, Fulham ×0.95,
+Brentford ×0.94, Ipswich ×0.90, Sunderland ×0.90, Coventry ×0.87, Leeds ×0.87, Hull ×0.61.
 Positions: defensive midfield ×1.13, centre-back ×1.08, central midfield ×1.07,
-attacking midfield ×1.00, right winger ×0.99, centre-forward ×0.98, left winger ×0.96,
-right-back ×0.95, goalkeeper ×0.91, left midfield ×0.89, left-back ×0.84, right
-midfield ×0.69. Worked through for Bruno Fernandes, the terms add to 4.381, so
-e^16.930 ≈ €22.5m, times ×1.48 for Man Utd: **€33.2m**. (The app shows each player
+attacking midfield ×1.00, right winger ×0.99, centre-forward ×0.97, left winger ×0.96,
+right-back ×0.94, left midfield ×0.92, goalkeeper ×0.91, left-back ×0.84, right
+midfield ×0.69. Worked through for Bruno Fernandes, the terms add to 4.349, so
+e^16.910 ≈ €22.1m, times ×1.48 for Man Utd: **€32.8m**. (The app shows each player
 as valued by a model fitted without them, so its figure differs slightly.)
 
 Two coefficients are negative on purpose. `age²` is the downward half of the
@@ -428,6 +444,10 @@ edges of the project:
   Championship players at the promoted clubs - van Ewijk and Rudoni at Coventry,
   Egeli at Ipswich - and no source we can reach covers the Championship: FBref
   blocks automated access, and Transfermarkt's player pages need a browser.
+- **Form that a reader can see.** Kerkez sits at twice his market value: young, a
+  regular at Liverpool, bought for €47m a year ago - and, by the market's reading, out
+  of form. Nothing in the numbers here measures form, and the one quality score
+  available (FPL bonus points) could not be used fairly (above).
 - **Shrinkage toward the middle** was corrected three ways (linear recalibration,
   isotonic, Duan smearing) and every one made euro error worse. It is the price of
   lower error with noisy features, so the interface explains it instead.

@@ -270,3 +270,24 @@ def test_gi_x_career_weighs_the_rate_by_how_much_was_played():
     ]))
 
     assert df["gi_x_career"].tolist() == pytest.approx([0.45, 0.025])
+
+
+def test_below_career_is_how_far_last_season_fell_short():
+    df = add_derived_features(pd.DataFrame([
+        {**_played("Centre-Forward", 0.53, 0.20, 0.9)},    # an injury-hit season
+        {**_played("Centre-Forward", 0.50, 0.80, 0.9)},    # better than the career: no shortfall
+    ]))
+
+    assert df["below_career"].tolist() == pytest.approx([0.33, 0.0])
+
+
+def test_bps_rates_need_five_matches_and_a_pl_record():
+    df = add_derived_features(pd.DataFrame([
+        {"hist_bps": 900, "hist_minutes": 2700, "recent_bps": 300, "recent_minutes": 900, "has_hist_record": 1},
+        {"hist_bps": 100, "hist_minutes": 300, "recent_bps": 100, "recent_minutes": 300, "has_hist_record": 1},
+        {"hist_bps": 900, "hist_minutes": 2700, "recent_bps": 300, "recent_minutes": 900, "has_hist_record": 0},
+    ]).assign(age=25, position="Centre-Back", career_minutes_share=0.5, recent_minutes_share=0.5,
+              minutes_share=0.5, has_transfer_fee=0, career_gi_per90=0.1))
+
+    assert df["career_bps_per90"].tolist() == pytest.approx([30.0, 0.0, 0.0])
+    assert df["recent_bps_per90"].tolist() == pytest.approx([30.0, 0.0, 0.0])

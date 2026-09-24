@@ -4,24 +4,26 @@
 # These are opinions, not ground truth - two of them disagree with Transfermarkt
 # rather than with the model - but they are the only outside check this project
 # has, and they caught the age-curve problem that the aggregate metrics hid.
+# Second round (after the fee, name-join and Champions League changes): seven
+# players re-judged, three Bournemouth players added.
 name,club,direction,strength
 Kobbie Mainoo,Man Utd,under,2
 Andrey Santos,Man Utd,under,1
 Marcus Rashford,Man Utd,under,2
-Bruno Fernandes,Man Utd,under,3
+Bruno Fernandes,Man Utd,under,2
 Lisandro Martínez,Man Utd,under,2
 Harry Maguire,Man Utd,under,1
 Benjamin Sesko,Man Utd,over,2
 Patrick Dorgu,Man Utd,over,1
 Diogo Dalot,Man Utd,over,1
 Manuel Ugarte,Man Utd,over,1
-Tyler Fletcher,Man Utd,over,1
+Tyler Fletcher,Man Utd,over,2
 Erling Haaland,Man City,under,1
 Ayyoub Bouaddi,Man City,under,3
 Bradley Barcola,Liverpool,under,1
 Alexander Isak,Liverpool,under,3
 Alisson,Liverpool,under,3
-Milos Kerkez,Liverpool,over,1
+Milos Kerkez,Liverpool,over,3
 Declan Rice,Arsenal,under,2
 Gabriel,Arsenal,under,3
 Jurriën Timber,Arsenal,under,1
@@ -29,4 +31,7 @@ Bruno Guimarães,Arsenal,under,2
 David Raya,Arsenal,under,2
 Mikel Merino,Arsenal,under,2
 Bukayo Saka,Arsenal,over,2
-Martín Zubimendi,Arsenal,over,3
+Martín Zubimendi,Arsenal,over,2
+Junior Kroupi,AFC Bournemouth,under,1
+Rayan,AFC Bournemouth,under,1
+Alex Scott,AFC Bournemouth,under,3

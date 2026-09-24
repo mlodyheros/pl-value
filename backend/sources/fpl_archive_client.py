@@ -37,6 +37,9 @@ _STAT_COLUMNS = {
     "assists": 0,
     "expected_goals": 0.0,
     "expected_assists": 0.0,
+    # FPL's bonus points system: credit for everything a player does on the ball,
+    # defensive work included - the one quality measure that covers every position.
+    "bps": 0,
 }
 
 # FPL's element_type
@@ -79,6 +82,7 @@ def get_season_players(start_year: int) -> list[dict]:
             "assists": int(row.assists),
             "xg": float(row.expected_goals),
             "xa": float(row.expected_assists),
+            "bps": int(row.bps),
         }
         for row in frame.itertuples()
     ]
@@ -112,6 +116,7 @@ def aggregate(records: list[dict]) -> dict:
         "hist_assists": sum(r["assists"] for r in records),
         "hist_xg": sum(r["xg"] for r in records),
         "hist_xa": sum(r["xa"] for r in records),
+        "hist_bps": sum(r.get("bps", 0) for r in records),
         "hist_seasons": len(records),
     }
 

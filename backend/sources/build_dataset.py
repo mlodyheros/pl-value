@@ -39,6 +39,7 @@ _EMPTY_HIST = {
     "hist_assists": 0,
     "hist_xg": 0.0,
     "hist_xa": 0.0,
+    "hist_bps": 0,
     "hist_seasons": 0,
 }
 _EMPTY_NONPL = {
@@ -291,10 +292,13 @@ def _history_columns(name: str, position: str, player: dict | None, index: dict)
         us.transfermarkt_position_group(position),
     )
     history = archive.aggregate(records) if records else _EMPTY_HIST
+    newest = [r for r in records or [] if r.get("season") == max(SEASONS)]
     return {
         **history,
         "has_hist_record": int(history["hist_seasons"] > 0),
         **_recent_columns(records, _PL_SEASON_MINUTES),
+        # FPL bonus points in the newest season, for its per-90 rate.
+        "recent_bps": sum(r.get("bps", 0) for r in newest),
     }
 
 
