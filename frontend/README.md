@@ -1,5 +1,7 @@
 # frontend
 
+[← Back to the README](../README.md) · [Model notes](../docs/model.md) · [Data reference](../docs/data.md)
+
 A single page, no build step: `index.html` plus `assets/styles.css`,
 `assets/charts.js` (chart primitives and the one shared tooltip) and
 `assets/app.js` (what to show, and when). It talks to the backend only over `/api`, never by importing
