@@ -14,7 +14,8 @@ import pandas as pd
 
 from backend import confidence
 from backend.config import CALIBRATION_PATH, MODEL_PATH, PROCESSED_DATASET_PATH
-from backend.features import CATEGORICAL_FEATURES, prepare_features
+from backend.features import CATEGORICAL_FEATURES, add_derived_features, prepare_features
+from backend.model import out_of_fold_predictions
 
 
 def load_pipeline():
@@ -74,10 +75,14 @@ def predict_player(name: str) -> None:
         print(f"No player found matching {name!r}")
         return
 
-    pipeline = load_pipeline()
     calibration = load_calibration()
-    for _, row in matches.iterrows():
-        predicted = predict_for_row(pipeline, row)
+    # The figure the app shows: each player valued by models fitted without
+    # him, averaged over random splits. The saved pipeline has seen most
+    # players in training, and a model asked about one of them flatters itself -
+    # it put Haaland at EUR187m here while the site said EUR200m.
+    predicted_all = out_of_fold_predictions(add_derived_features(df))
+    for index, row in matches.iterrows():
+        predicted = float(predicted_all[df.index.get_loc(index)])
         actual = row["market_value_eur"]
         diff_pct = (predicted - actual) / actual * 100
         print(f"\n{row['name']} ({row['club']}, {row['position']}, age {row['age']})")
