@@ -224,3 +224,6 @@ data/processed/*
 !data/processed/.gitkeep
 models/*.joblib
 models/*.json
+
+# Local tool settings
+.claude/
