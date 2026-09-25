@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from backend import predict
 from backend.model import train
@@ -8,7 +9,7 @@ from backend.model import train
 def _predicted_euros(out: str) -> float:
     """The prediction itself, ignoring the confidence range printed under it."""
     line = next(l for l in out.splitlines() if "Predicted value" in l)
-    return float(line.split("€")[1].replace(",", "").strip())
+    return float(line.split("€")[1].split()[0].replace(",", ""))
 
 
 def _df(n=60, seed=1):
@@ -166,3 +167,21 @@ def test_manual_prediction_with_a_career_record_is_not_called_unknown(monkeypatc
 
     assert "no recent playing record" not in out
     assert "Premier League history" in out
+
+
+def test_predict_player_shows_the_same_figure_as_the_app(monkeypatch, tmp_path, capsys):
+    """It used to print the saved model's figure, which had seen most players in
+    training: Haaland came out at EUR187m here and EUR200m on the site."""
+    from backend.features import add_derived_features
+    from backend.model import out_of_fold_predictions
+
+    df = _df().assign(name=[f"Player {i}" for i in range(60)])
+    csv = tmp_path / "players.csv"
+    df.to_csv(csv, index=False)
+    monkeypatch.setattr(predict, "PROCESSED_DATASET_PATH", csv)
+    monkeypatch.setattr(predict, "load_calibration", lambda: None)
+
+    predict.predict_player("Player 7")
+
+    expected = out_of_fold_predictions(add_derived_features(pd.read_csv(csv)))[7]
+    assert _predicted_euros(capsys.readouterr().out) == pytest.approx(expected, abs=1)
