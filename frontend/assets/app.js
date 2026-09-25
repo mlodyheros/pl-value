@@ -53,7 +53,11 @@ let boardPlace = null;
 const money = Charts.euro;
 const esc = Charts.esc;
 
-const signed = (pct) => `${pct > 0 ? "+" : "−"}${Math.abs(Math.round(pct))}%`;
+// A gap that rounds to nothing is "0%", not "+0%" or "−0%".
+const signed = (pct) => {
+  const whole = Math.round(pct);
+  return whole === 0 ? "0%" : `${whole > 0 ? "+" : "−"}${Math.abs(whole)}%`;
+};
 const count = (n, word) => `${n.toLocaleString("en-GB")} ${word}${n === 1 ? "" : "s"}`;
 const sentence = (text) => text.charAt(0).toUpperCase() + text.slice(1).replace(" - ", " — ");
 const seasonLabel = (year) => `${year}/${String(year + 1).slice(-2)}`;
@@ -742,14 +746,16 @@ async function open(id) {
 
 function compareRow(player, scale) {
   const direction = directionOf(player.gapPct);
+  const gap = Math.abs(Math.round(player.gapPct));
+  const figures = gap
+    ? `<span class="key key--${direction}" aria-hidden="true"></span>Model asks ${gap}% ${direction}`
+    : "Model and market match";
   return `
     <div class="compare__row">
       <div class="compare__who">
         <a class="compare__name" href="#p${player.id}">${esc(player.name)}</a>
         <span class="compare__meta">${esc(player.club)} · ${esc(player.position)} · ${player.age}</span>
-        <span class="compare__figures kpi__dir">
-          <span class="key key--${direction}" aria-hidden="true"></span>Model asks ${Math.abs(Math.round(player.gapPct))}% ${direction}
-        </span>
+        <span class="compare__figures kpi__dir">${figures}</span>
       </div>
       <p class="visually-hidden">${esc(player.name)}: ${spokenSummary(player)}</p>
       ${Charts.rangePlot({
