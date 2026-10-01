@@ -7,10 +7,10 @@
 #
 # Remove it again with scripts/uninstall_refresh_schedule.sh.
 #
-# macOS does not let background jobs read Desktop, Documents or Downloads. If the
-# project lives there, the job logs "Operation not permitted" until the project
-# moves elsewhere or the Python behind .venv gets Full Disk Access (System
-# Settings > Privacy & Security).
+# macOS does not let background jobs read Desktop, Documents or Downloads, so keep
+# the project elsewhere (e.g. ~/projects). From those folders the job only logs
+# "Operation not permitted". To move it, see "Keeping it current" in docs/data.md.
+# Run the job at once with: launchctl kickstart -k gui/$(id -u)/com.plvalue.refresh
 set -euo pipefail
 
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -37,7 +37,7 @@ models/
   confidence_calibration.json       the 50% and 80% ranges for each evidence tier
   fee_model.joblib                  the fee model
   fee_calibration.json              its 80% range and accuracy
-reports/figures/pred_vs_actual.png  predicted against actual, redrawn on each training run
+reports/figures/pred_vs_actual.png  predicted against actual, redrawn on each training run (not in git)
 ```
 
 Deleting `data/raw/` forces a full refetch. Deleting `data/processed/` or
@@ -283,12 +283,18 @@ To run the check every morning at 07:00 on macOS (launchd):
 ./scripts/uninstall_refresh_schedule.sh
 ```
 
-On macOS, background jobs cannot read the Desktop, Documents or Downloads
-folders. If the project lives in one of them, the job fails with "Operation not
-permitted" (see `data/refresh.log`). There are two fixes:
-- move the project elsewhere, and recreate `.venv` after moving it
-- give the Python that `.venv` points to Full Disk Access in System Settings →
-  Privacy & Security
+Keep the project outside the Desktop, Documents and Downloads folders, for
+example in `~/projects/pl-value-predictor`. macOS does not let background jobs
+read those three, so from there the job fails with "Operation not permitted"
+(see `data/refresh.log`). To move an existing checkout:
+1. Copy it, `data/` and `models/` included (they are not in git).
+2. Create `.venv` afresh in the new place. A virtualenv records absolute paths,
+   so a moved one breaks.
+3. Run `scripts/uninstall_refresh_schedule.sh`, then
+   `scripts/install_refresh_schedule.sh` from the new copy.
+
+`launchctl kickstart -k gui/$(id -u)/com.plvalue.refresh` runs the job at once,
+to check it.
 
 ## Known gaps
 
