@@ -66,7 +66,9 @@ What sets it apart from a single "predicted price":
 
 ## Quick start
 
-You need Python 3.11 and an internet connection for the first build.
+You need Python 3.11 and an internet connection for the first build. On macOS,
+clone outside Desktop, Documents and Downloads (for example into `~/projects`),
+because the daily refresh cannot read those folders.
 
 ```bash
 git clone https://github.com/mlodyheros/pl-value-predictor.git

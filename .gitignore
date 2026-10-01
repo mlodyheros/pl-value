@@ -224,6 +224,8 @@ data/processed/*
 !data/processed/.gitkeep
 models/*.joblib
 models/*.json
+# Redrawn on every training run
+reports/figures/*.png
 
 # Local tool settings
 .claude/
