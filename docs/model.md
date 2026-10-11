@@ -20,7 +20,7 @@ the model is weak, and what was tried and turned down.
 
 ## In one paragraph
 
-A linear regression predicts log(1 + Transfermarkt market value) from 25 numeric
+A linear regression predicts log(1 + Transfermarkt market value) from 28 numeric
 features and two categories (position and club), with each player weighted by
 √value. Playing time explains most of a player's value, followed by the price a
 club last paid, output per 90 minutes, age, and the club itself. Every figure the
@@ -54,6 +54,8 @@ records what each one was worth when it was added.
 | `youth_x_recent` | years short of 23 × last season's share: a teenage regular is rare and priced like it |
 | `older_x_career` | years past 29 × career share: the decline is gentler for someone who kept his place |
 | `backup_keeper` | a goalkeeper who has played nowhere and cost nothing: a third choice, not a prospect |
+| `log_contract_years`, `contract_known` | seasons left on the contract (1-5, log), and whether it is known (3 assumed when not) |
+| `contract_x_young` | the same for players under 24, for whom a contract's length says little |
 | `has_hist_record` | the player has PL minutes in the last four seasons |
 | `has_any_history` | the player has a record in the PL or another covered league |
 | `position`, `club` | one-hot: 12 positions, 20 clubs |
@@ -298,6 +300,14 @@ What was learned along the way:
   against a market €42m. Adding the last fee paid was the largest single gain
   since playing history. A fee is not the target leaking. It is a real
   transaction, agreed *before* the valuation being predicted.
+- **A contract matters for an established player, not a prospect.** Years
+  left on the contract, tried alone, was within noise, because it pulls two
+  ways. For a player of 24 or older one season left against five is worth about
+  -20%: his club can lose him for nothing next summer. For a younger one it is
+  worth about nothing, since a club that rates a prospect renews him early and
+  his price is about his future. With the two separated: MAE €6.02m → €5.94m (4
+  standard errors over 100 paired folds, better in 68%), typical miss 27.8% →
+  26.1%, the dearest tenth unchanged within noise.
 - **Fallbacks beat extra columns.** Adding the non-PL record as its own feature
   made things *worse* (top-decile MAE €18.7m → €20.8m): it is zero for most of
   the squad, so it mostly added noise. Folding it into the same feature as the
@@ -423,7 +433,15 @@ To add a round, append rows to the file and run `pytest backend/tests/test_human
 ## Tried and rejected
 
 - **Random forest and gradient boosting.** With matched weights, the linear
-  model has the lowest euro error.
+  model has the lowest euro error. Gradient boosting alone (500 trees of depth
+  3, same features and weights) had MAE €6.66m against €6.04m, and valued the
+  dearest tenth at 0.84 of the market against 0.92: trees cannot extrapolate
+  past the most expensive players they were shown. A blend, 30% boosting and
+  70% linear in log space, was better on the aggregate (log R² 0.861 → 0.874,
+  MAE €6.04m → €5.92m, typical miss 28.2% → 26.0%) and pulled the cheapest
+  players closer to the market (1.60 → 1.50 of their value), but lowered the
+  stars to 0.89. Under-asking for stars is the error this model has worked
+  hardest against, so the blend was not taken.
 - **Past-season starts, and xG/xA per 90.** Nothing on top of actual output.
 - **This season's xG/xA and defensive stats.** Still noise after four
   gameweeks.

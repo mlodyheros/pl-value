@@ -192,8 +192,8 @@ def _player_payload(
         "position": row.position,
         "age": int(row.age),
         "nationality": row.nationality,
-        # Carried for the reader, not the model: contract length correlates with
-        # value but adds nothing once age is known (tested, within noise).
+        # The model uses it too (log_contract_years in features.py), mostly for
+        # players of 24 and over; the reader sees the date itself.
         "contractExpiry": None if pd.isna(row.get("contract_expiry")) else row.contract_expiry,
         "lastFee": None
         if pd.isna(row.get("transfer_fee_eur"))
