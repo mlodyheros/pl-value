@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from backend.config import SEASONS
 from backend.sources.understat_client import transfermarkt_position_group
 
 NUMERIC_FEATURES = [
@@ -34,6 +35,9 @@ NUMERIC_FEATURES = [
     "below_career",
     "xgchain_vs_position",
     "has_quality_record",
+    "log_contract_years",
+    "contract_known",
+    "contract_x_young",
 ]
 CATEGORICAL_FEATURES = ["position", "club"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -56,6 +60,17 @@ XGCHAIN_REFERENCE = {"GK": 0.13, "D": 0.34, "M": 0.48, "F": 0.60}
 # and too little for players in their late twenties. Letting the curve bend at
 # these two ages fixes the shape without giving it enough freedom to wander.
 AGE_KNOTS = (23, 29)
+
+# The season being valued (start year): the one after the last completed season.
+CURRENT_SEASON = SEASONS[-1] + 1
+# Contracts end in the summer, so one ending in CURRENT_SEASON + 1 has this
+# season left. Longer than this counts as this long: the market barely tells
+# a six-year deal from a five-year one.
+MAX_CONTRACT_YEARS = 5
+# Assumed when the contract is unknown; ``contract_known`` says it is a guess.
+DEFAULT_CONTRACT_YEARS = 3
+# Below this age a contract's length says little about price (see below).
+CONTRACT_YOUNG_AGE = 24
 
 
 def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -201,6 +216,17 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
       defensive midfielder's, and once quality is measured his EUR95m fee no
       longer stands in for it. Measured against the exact position instead of
       the group it was no better, and dropped the labels below their floor.
+    - ``log_contract_years`` (with ``contract_known`` and ``contract_x_young``):
+      seasons left on the contract, this one included (1-5, log scale), and the
+      same figure for players under 24. A club holding a player for years can
+      ask more, and one in his last year can leave for nothing next summer.
+      Tried alone, years left was within noise: it pulls in two directions. For
+      a player of 24 or older one season left against five is about -20%; for
+      a younger one it is about nothing, since a club that rates a prospect
+      renews him early and his price is about his future, not his deal. The
+      product separates the two. MAE EUR6.02m -> EUR5.94m (4 standard errors
+      over 100 paired folds, better in 68%), typical miss 27.8% -> 26.1%, the
+      dearest tenth unchanged within noise.
 
     ``career_bps_per90`` / ``recent_bps_per90`` - FPL's bonus points per 90, the
     one quality measure here that covers every position - are computed for
@@ -362,6 +388,16 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
             out["xgchain_vs_position"] = np.where(out["has_quality_record"] == 1, per90 / reference, 0.0)
         else:
             out["xgchain_vs_position"] = 0.0
+    if "log_contract_years" not in out:
+        expiry = (
+            pd.to_datetime(out["contract_expiry"], errors="coerce")
+            if "contract_expiry" in out
+            else pd.Series(pd.NaT, index=out.index)
+        )
+        years = (expiry.dt.year - CURRENT_SEASON).clip(lower=1, upper=MAX_CONTRACT_YEARS)
+        out["contract_known"] = years.notna().astype(float)
+        out["log_contract_years"] = np.log(years.fillna(DEFAULT_CONTRACT_YEARS).astype(float))
+        out["contract_x_young"] = out["log_contract_years"] * (out["age"] < CONTRACT_YOUNG_AGE)
     if "years_since_fee" not in out:
         out["years_since_fee"] = (
             pd.to_numeric(out["transfer_fee_years"], errors="coerce").fillna(0)

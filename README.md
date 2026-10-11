@@ -474,8 +474,10 @@ push.
   Eredivisie are not covered by any source the pipeline can reach, so 56
   players are valued from age, position, club and fee alone. They are labelled
   low confidence and given a wide range instead of a falsely precise number.
-- **The model cannot see form or contracts.** A player out of form, or with a
-  year left on his deal, looks the same to it as anyone else with his record.
+- **The model cannot see form.** A player out of form looks the same to it as
+  anyone else with his record. It does see contracts, but only where they
+  matter: a player of 24 or older with a season left is valued about 20% below
+  one with five, a younger one about the same.
 - **Early in a season this season counts for little.** After five gameweeks,
   history carries most of the weight. Retrain as the season goes on (the
   refresh does it for you).
