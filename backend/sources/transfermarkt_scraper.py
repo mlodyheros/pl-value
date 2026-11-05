@@ -216,17 +216,20 @@ def parse_contract_expiry(text: str) -> dt.date | None:
 
 
 def parse_market_value(text: str) -> float | None:
-    """'€45.00m' -> 45_000_000.0, '€850k' -> 850_000.0, '-' -> None."""
-    text = text.strip().replace("€", "").replace(",", ".")
+    """'€45.00m' -> 45_000_000.0, '€850k' -> 850_000.0, '-' -> None.
+
+    Since November 2026 Transfermarkt writes '€30M' and '€6.0M' instead of
+    '€30.00m', so the unit is read in either case.
+    """
+    text = text.strip().replace("€", "").replace(",", ".").lower()
     if not text or text == "-":
         return None
     multiplier = 1.0
-    if text.endswith("m"):
-        multiplier = 1_000_000.0
-        text = text[:-1]
-    elif text.endswith("k"):
-        multiplier = 1_000.0
-        text = text[:-1]
+    for unit, factor in (("bn", 1_000_000_000.0), ("m", 1_000_000.0), ("k", 1_000.0)):
+        if text.endswith(unit):
+            multiplier = factor
+            text = text[: -len(unit)]
+            break
     try:
         return float(text) * multiplier
     except ValueError:

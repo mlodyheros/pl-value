@@ -11,6 +11,11 @@ from backend.sources import transfermarkt_scraper as tm
         ("€1,50m", 1_500_000.0),
         ("  €10.5m ", 10_500_000.0),
         ("€2", 2.0),
+        # Transfermarkt's format from November 2026.
+        ("€30M", 30_000_000.0),
+        ("€6.0M", 6_000_000.0),
+        ("€800K", 800_000.0),
+        ("€1.2bn", 1_200_000_000.0),
         ("-", None),
         ("", None),
         ("n/a", None),
