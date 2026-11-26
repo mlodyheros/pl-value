@@ -18,6 +18,8 @@ _TRANSLITERATE = str.maketrans(
 
 def normalize_name(name: str) -> str:
     """Accent-/case-insensitive key so 'Jérémy Doku' joins 'Jeremy Doku'."""
+    # NFKD splits "é" into "e" plus a combining accent, which the ASCII encode
+    # then drops; the final split/join collapses stray whitespace.
     decomposed = unicodedata.normalize("NFKD", name.translate(_TRANSLITERATE))
     ascii_name = decomposed.encode("ascii", "ignore").decode()
     return " ".join(ascii_name.lower().split())

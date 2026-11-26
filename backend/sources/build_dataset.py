@@ -2,6 +2,19 @@
 (Transfermarkt) joined with playing history (Fantasy Premier League API).
 
 The club list comes from FPL too, so the pipeline needs no API key.
+
+Transfermarkt's squad pages are the spine: one row per player listed there.
+Everything else is joined on to those rows by name (FPL's stable player code
+once a player is matched), with the other sources filling in what it lacks:
+
+- FPL: this season's minutes, and the archive's past PL seasons;
+- Understat, then the Kaggle appearances: seasons in the other big leagues,
+  for players new to the PL, plus xGChain for the quality measure;
+- Kaggle and the clubs' transfer pages: the last fee paid;
+- Kaggle: last season's Champions League minutes.
+
+Every join refuses a match it is not sure of. A missed match costs a player
+some evidence; a wrong one files someone else's career under him.
 """
 
 from __future__ import annotations
@@ -133,6 +146,8 @@ def _match_fpl(
     """Full name, short name (Transfermarkt's 'Gabriel'), unique name-token
     subset (Transfermarkt's 'David Raya' vs FPL's 'David Raya Martin'), fuzzy,
     and finally a looser match inside the player's own club."""
+    # Ordered strictest first, so a looser rule only sees names the stricter
+    # ones could not place.
     key = normalize_name(name)
     if key in by_full:
         return by_full[key]
@@ -182,7 +197,7 @@ def _match_understat(name: str, position: str, index: dict) -> list[dict] | None
 
 
 def _nonpl_columns(player: dict, index: dict, kaggle: dict | None = None) -> dict:
-    """Non-PL playing record, only for players with no PL history to speak of.
+    """Non-PL playing record, used when a player has little or no PL history.
 
     Understat first. When it cannot find the player - it spells some names its
     own way - the same leagues from the Kaggle files, whose names come from
@@ -270,6 +285,7 @@ def _quality_columns(player: dict, index: dict, by_id: dict) -> dict:
 
 
 def _fpl_columns(player: dict | None, gameweeks: int) -> dict:
+    """This season's FPL stats, or zeros flagged ``has_fpl_record = 0``."""
     if player is None:
         return {
             **_EMPTY_FPL,
@@ -353,6 +369,7 @@ def _history_columns(name: str, position: str, player: dict | None, index: dict)
         name,
         us.transfermarkt_position_group(position),
     )
+    # The same records feed career totals and the newest-season figures below.
     history = archive.aggregate(records) if records else _EMPTY_HIST
     newest = [r for r in records or [] if r.get("season") == max(SEASONS)]
     return {
@@ -365,6 +382,11 @@ def _history_columns(name: str, position: str, player: dict | None, index: dict)
 
 
 def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
+    """Fetch every source, join them per player and write the processed CSV.
+
+    Players without a market value, age or position are dropped, since the
+    model can neither learn from nor predict them.
+    """
     fpl_data = fpl_client.get_bootstrap_static(refresh=refresh_fpl)
     club_names = fpl_client.team_names(fpl_data)
     if not club_names:
@@ -393,6 +415,8 @@ def build_dataset(refresh_fpl: bool = False) -> pd.DataFrame:
     pl_history = archive.build_index(SEASONS)
     understat = us.build_index(seasons=SEASONS)
     quality = us.build_index(leagues=UNDERSTAT_QUALITY_LEAGUES, seasons=SEASONS)
+    # Understat id -> all of that player's seasons, so a player spelled
+    # differently from one season to the next is still summed as one.
     quality_by_id: dict[str, list[dict]] = {}
     for records in quality.values():
         for record in records:

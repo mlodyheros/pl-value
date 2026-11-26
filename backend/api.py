@@ -53,6 +53,7 @@ def _build_state(dataset_stamp: float, calibration_stamp: float | None = None) -
     df = add_derived_features(pd.read_csv(PROCESSED_DATASET_PATH))
     df["predicted_eur"] = out_of_fold_predictions(df)
     df["tier"] = confidence.coverage_tiers(df)
+    # Positive: the model thinks the player is worth more than the market says.
     df["gap_pct"] = (df.predicted_eur / df.market_value_eur - 1) * 100
 
     # The second model, when it has been trained: what a club would likely pay.
@@ -125,6 +126,8 @@ def _timeline(row: pd.Series, timelines: dict) -> list[dict]:
         for r in (pl or [])
     ]
 
+    # Other leagues only fill in for a player with no PL seasons at all, the
+    # same fallback the model's career features use.
     if not seasons:
         for r in timelines["other"].get(normalize_name(row["name"]), []):
             seasons.append(
@@ -179,12 +182,15 @@ def _player_payload(
     timelines: dict,
     fee_calibration: dict | None = None,
 ) -> dict:
+    """Everything the player page shows, in the frontend's camelCase shape."""
     predicted = float(row.predicted_eur)
     low = high = None
     if calibration is not None:
         low, high = confidence.interval(predicted, row.tier, calibration, CONFIDENCE_LEVEL)
 
     return {
+        # row.name is the DataFrame index (the player id); the player's own
+        # name is a column, hence row["name"].
         "id": int(row.name),
         "name": row["name"],
         "club": row.club,
@@ -298,6 +304,7 @@ def list_players() -> list[dict]:
 
 @app.get("/api/players/{player_id}")
 def get_player(player_id: int) -> dict:
+    """One player's full payload: prediction, range, fee estimate, history and peers."""
     state = get_state()
     df = state["df"]
     if player_id not in df.index:
@@ -342,6 +349,7 @@ def rankings(limit: int = 10, min_value_eur: float = 15_000_000) -> dict:
 
 @app.get("/api/meta")
 def meta() -> dict:
+    """Dataset-wide facts for the page: counts, filter options, tiers and CV metrics."""
     state = get_state()
     df, calibration = state["df"], state["calibration"]
     metrics = state["metrics"]
@@ -360,6 +368,7 @@ def meta() -> dict:
         "clubList": sorted(df.club.unique().tolist()),
         "positionList": sorted(df.position.unique().tolist()),
         "seasons": SEASONS,
+        # Every row carries the same gameweek count, taken when FPL was fetched.
         "seasonGameweeks": int(df.fpl_gameweeks.iloc[0]),
         "confidenceLevel": CONFIDENCE_LEVEL,
         "calibrated": calibration is not None,
@@ -372,6 +381,7 @@ def meta() -> dict:
     }
 
 
+# Serve the static frontend from the same origin, so the page needs no CORS setup.
 if FRONTEND_DIR.exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
 

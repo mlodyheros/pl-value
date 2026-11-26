@@ -62,6 +62,7 @@ _KAGGLE_POSITION = {"GK": "Goalkeeper", "D": "Defender", "M": "Midfield", "F": "
 
 
 def available() -> bool:
+    """True when all three Kaggle files the fee model needs are present."""
     return all(
         (KAGGLE_RAW_DIR / name).exists() for name in (TRANSFERS_FILE, PLAYERS_FILE, VALUATIONS_FILE)
     )
@@ -69,6 +70,8 @@ def available() -> bool:
 
 def _add_terms(frame: pd.DataFrame) -> pd.DataFrame:
     out = frame.copy()
+    # Hinge terms let a linear model bend with age: the premium for youth
+    # fades after 23 and the discount steepens after 29, without a curve fit.
     out["age_past_23"] = (out["age"] - 23).clip(lower=0)
     out["age_past_29"] = (out["age"] - 29).clip(lower=0)
     return out
@@ -108,12 +111,14 @@ def training_frame(today: dt.date | None = None) -> pd.DataFrame:
     frame["from_pl"] = (frame.from_club_id.map(leagues) == PREMIER_LEAGUE).astype(float)
     frame["to_pl"] = (frame.to_club_id.map(leagues) == PREMIER_LEAGUE).astype(float)
     frame["log_value"] = np.log(frame.market_value_in_eur)
+    # A fractional year, so the model can pick up fee inflation over time.
     frame["year"] = frame.date.dt.year + frame.date.dt.dayofyear / 366
     frame["log_fee"] = np.log(frame.transfer_fee)
     return _add_terms(frame).reset_index(drop=True)
 
 
 def build_pipeline() -> Pipeline:
+    """Scaled numeric terms plus one-hot position into a plain linear regression on log fee."""
     return Pipeline(
         [
             (
@@ -131,6 +136,8 @@ def build_pipeline() -> Pipeline:
 
 
 def _out_of_fold(frame: pd.DataFrame, n_splits: int = 5) -> np.ndarray:
+    # Each transfer predicted by a model that never saw it, so the error
+    # figures and the calibrated range are honest rather than in-sample.
     predicted = np.zeros(len(frame))
     for train_idx, test_idx in KFold(n_splits, shuffle=True, random_state=0).split(frame):
         fitted = build_pipeline().fit(frame.iloc[train_idx][NUMERIC + CATEGORICAL], frame.log_fee.iloc[train_idx])
@@ -143,6 +150,8 @@ def evaluate(frame: pd.DataFrame, predicted_log: np.ndarray) -> dict:
     sold_by_pl = ((frame.from_pl == 1) & (frame.market_value_in_eur >= 5e6)).to_numpy()
     actual = frame.log_fee.to_numpy()
 
+    # Median absolute log error, exponentiated: a multiplicative "typical
+    # miss", so x1.36 means the fee is usually within 36% either way.
     def typical(pred: np.ndarray, mask: np.ndarray) -> float:
         return float(np.exp(np.median(np.abs(pred[mask] - actual[mask]))))
 
@@ -177,6 +186,7 @@ def estimate(pipeline: Pipeline, calibration: dict, players: pd.DataFrame, today
         {
             "log_value": np.log(players["market_value_eur"].astype(float)),
             "age": players["age"].astype(float),
+            # Every player here is at a PL club, so every sale is by one.
             "from_pl": 1.0,
             "year": year,
             "position": players["position"].map(
@@ -186,21 +196,25 @@ def estimate(pipeline: Pipeline, calibration: dict, players: pd.DataFrame, today
         index=players.index,
     )
     out = pd.DataFrame(index=players.index)
+    # Same player, two buyers: only to_pl differs between the two estimates.
     for column, to_pl in (("fee_pl_eur", 1.0), ("fee_abroad_eur", 0.0)):
         frame = _add_terms(base.assign(to_pl=to_pl))
         out[column] = np.exp(pipeline.predict(frame[NUMERIC + CATEGORICAL]))
+    # The residual quantiles are in log space, so they scale the estimate.
     out["fee_pl_low_eur"] = out.fee_pl_eur * np.exp(calibration["low"])
     out["fee_pl_high_eur"] = out.fee_pl_eur * np.exp(calibration["high"])
     return out
 
 
 def load() -> tuple[Pipeline, dict] | None:
+    """The saved fee model and its calibration, or None if it was never trained."""
     if not (FEE_MODEL_PATH.exists() and FEE_CALIBRATION_PATH.exists()):
         return None
     return joblib.load(FEE_MODEL_PATH), json.loads(FEE_CALIBRATION_PATH.read_text())
 
 
 def main() -> None:
+    """Train, evaluate and save the fee model: ``python -m backend.fee_model``."""
     logging.basicConfig(level=logging.INFO)
     if not available():
         logger.info("No Kaggle transfer files in %s; skipping the fee model.", KAGGLE_RAW_DIR)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import matplotlib
 
+# Headless backend: plots are only written to files, often on machines with no display.
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np

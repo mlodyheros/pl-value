@@ -53,6 +53,8 @@ def coverage_tiers(df: pd.DataFrame) -> pd.Series:
 
 
 def _quantiles(residuals: np.ndarray, levels) -> dict:
+    # Central interval per level, e.g. 0.8 -> the 10th and 90th percentiles.
+    # Keys are strings because the result is saved as JSON.
     out = {}
     for level in levels:
         tail = (1 - level) / 2
@@ -99,6 +101,7 @@ def interval(
     prediction_eur: float, tier: str, calibration: dict, level: float = 0.8
 ) -> tuple[float, float]:
     """Plausible range around a prediction, from that tier's measured errors."""
+    # Tiers too small to calibrate were left out, so fall back to overall.
     entry = calibration.get(tier) or calibration[_OVERALL]
     bounds = entry["levels"].get(str(level)) or calibration[_OVERALL]["levels"][str(level)]
     low, high = bounds

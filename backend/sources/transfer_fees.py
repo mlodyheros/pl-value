@@ -47,12 +47,14 @@ _EARLIEST_LAST_SEASON = 2025
 
 
 def available() -> bool:
+    """True when both Kaggle files this source reads are present."""
     return (KAGGLE_RAW_DIR / PLAYERS_FILE).exists() and (
         KAGGLE_RAW_DIR / TRANSFERS_FILE
     ).exists()
 
 
 def _index_players(today: dt.date) -> pd.DataFrame:
+    """Recently active Kaggle players with a name key and age as of ``today``."""
     players = pd.read_csv(
         KAGGLE_RAW_DIR / PLAYERS_FILE,
         usecols=["player_id", "name", "date_of_birth", "last_season"],
@@ -65,6 +67,7 @@ def _index_players(today: dt.date) -> pd.DataFrame:
 
 
 def _latest_fees(today: dt.date) -> pd.DataFrame:
+    """Each player's most recent paid transfer: fee and date, indexed by player_id."""
     transfers = pd.read_csv(
         KAGGLE_RAW_DIR / TRANSFERS_FILE,
         usecols=["player_id", "transfer_date", "transfer_fee"],

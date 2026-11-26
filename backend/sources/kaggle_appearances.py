@@ -47,6 +47,7 @@ _AGE_TOLERANCE_YEARS = 1.2
 
 
 def available() -> bool:
+    """True when all three Kaggle files this source reads are present."""
     return all(
         (KAGGLE_RAW_DIR / name).exists()
         for name in (APPEARANCES_FILE, PLAYERS_FILE, COMPETITIONS_FILE)
@@ -69,6 +70,8 @@ def _appearances(seasons: list[int]) -> pd.DataFrame:
     """Appearances in the covered leagues and the Champions League, by season."""
     columns = ["player_id", "competition_id", "date", "minutes_played", "goals", "assists"]
     wanted = set(LEAGUES) | {CHAMPIONS_LEAGUE}
+    # The appearances file is large; reading it in chunks and filtering each
+    # keeps memory to the rows actually needed.
     parts = [
         chunk[chunk.competition_id.isin(wanted)]
         for chunk in pd.read_csv(
@@ -136,6 +139,8 @@ def build_index(seasons: list[int], today: dt.date | None = None) -> dict[str, l
     players = pd.read_csv(
         KAGGLE_RAW_DIR / PLAYERS_FILE, usecols=["player_id", "name", "date_of_birth"]
     )
+    # Only players with a record in a covered league or the Champions League,
+    # which keeps the name index small and cuts down on namesakes.
     players = players[players.player_id.isin(records.keys() | champions_league.keys())]
     born = pd.to_datetime(players.date_of_birth, errors="coerce")
     players = players.assign(age=(pd.Timestamp(today) - born).dt.days / 365.25).dropna(subset=["age"])

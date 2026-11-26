@@ -53,6 +53,7 @@ MIN_PLAUSIBLE_SQUAD_VALUE_EUR = 50_000_000
 
 
 def _throttle() -> None:
+    """Space requests at least TRANSFERMARKT_DELAY_SECONDS apart, to stay polite."""
     global _last_request_time
     if _last_request_time is not None:
         elapsed = time.monotonic() - _last_request_time
@@ -63,6 +64,7 @@ def _throttle() -> None:
 
 
 def _slugify(text: str) -> str:
+    # Safe cache file name for a search query.
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
 
 
@@ -96,6 +98,7 @@ def _get_html(
 
 
 def _load_club_id_cache() -> dict:
+    """Club name -> resolved Transfermarkt slug and id, saved between builds."""
     if TRANSFERMARKT_CLUB_ID_CACHE.exists():
         return json.loads(TRANSFERMARKT_CLUB_ID_CACHE.read_text())
     return {}
@@ -150,6 +153,7 @@ def _find_club_candidates(html: str) -> list[tuple[str, str, str]]:
 
 
 def _strip_club_suffix(name: str) -> str:
+    """'Crystal Palace FC' -> 'Crystal Palace' (see _search_query_candidates)."""
     return re.sub(r"\s+(FC|AFC)$", "", name, flags=re.IGNORECASE).strip()
 
 
@@ -181,6 +185,8 @@ def resolve_club_id(club_name: str) -> dict | None:
 
     candidates: list[tuple[str, str, str]] = []
     for query in _search_query_candidates(club_name):
+        # No max_age_hours: search results are kept for good, as a club's id
+        # does not change.
         html = _get_html(
             f"{TRANSFERMARKT_BASE_URL}/schnellsuche/ergebnis/schnellsuche",
             cache_name=f"search_{_slugify(query)}",
@@ -259,6 +265,9 @@ def fetch_squad(club_name: str) -> list[dict]:
         return []
 
     players = []
+    # Top-level cells of a squad row: 0 shirt number, 1 a nested table with
+    # name and position, 2 age, 3 nationality flags, 4 contract, 5 market value.
+    # recursive=False matters, as the nested table has <tr>/<td>s of its own.
     for row in table.find("tbody").find_all("tr", recursive=False):
         cells = row.find_all("td", recursive=False)
         if len(cells) < 6:
@@ -274,6 +283,7 @@ def fetch_squad(club_name: str) -> list[dict]:
         age_text = cells[2].get_text(strip=True)
         age = int(age_text) if age_text.isdigit() else None
 
+        # Dual nationals show more than one flag; only the first is kept.
         flags = cells[3].find_all("img")
         nationality = flags[0].get("title") if flags else None
 
@@ -313,6 +323,8 @@ def parse_fee(text: str) -> tuple[str, float | None]:
     'End of loan 30/06/2026' -> ("loan_return", None), '-' or '?' -> ("unknown", None).
     A loan fee is rent rather than a price, so it is not reported as one.
     """
+    # Order matters: "End of loan" also contains "loan", and "Loan fee: €100k"
+    # carries an amount that must not be read as a price.
     lowered = " ".join(text.split()).lower()
     if lowered.startswith("end of loan"):
         return "loan_return", None
@@ -343,6 +355,8 @@ def fetch_arrivals(club_name: str, season: int) -> list[dict]:
     )
     soup = BeautifulSoup(html, "html.parser")
     arrivals = []
+    # The page has an Arrivals box and a Departures box with the same table
+    # layout; only the heading tells them apart.
     for box in soup.find_all("div", class_="box"):
         heading = box.find(["h2", "h3"])
         table = box.find("table", class_="items")
@@ -356,6 +370,7 @@ def fetch_arrivals(club_name: str, season: int) -> list[dict]:
             if name_cell is None:
                 continue
             age_text = cells[2].get_text(strip=True)
+            # The fee is always the last column, whatever comes before it.
             kind, fee = parse_fee(cells[-1].get_text(" ", strip=True))
             arrivals.append(
                 {

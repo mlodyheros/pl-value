@@ -38,6 +38,7 @@ _last_request_time: float | None = None
 
 
 def _throttle() -> None:
+    """Space requests at least UNDERSTAT_DELAY_SECONDS apart, to stay polite."""
     global _last_request_time
     if _last_request_time is not None:
         wait = UNDERSTAT_DELAY_SECONDS - (time.monotonic() - _last_request_time)
@@ -47,6 +48,7 @@ def _throttle() -> None:
 
 
 def _slug(league: str) -> str:
+    # Cache file name for a league: "La liga" -> "La_liga".
     return league.replace(" ", "_")
 
 
@@ -95,6 +97,8 @@ def build_index(
         for season in seasons or []:
             players = get_league_players(league, season)
             season_minutes = _season_minutes(players)
+            # Keyed by name, not Understat id: the id means nothing to the other
+            # sources, and the name is the only thing they share.
             for player in players:
                 index.setdefault(name_key(player["player_name"]), []).append(
                     {
@@ -129,6 +133,8 @@ def aggregate(records: list[dict]) -> dict:
 
 def position_group(understat_position: str) -> str:
     """Understat's codes ('D S', 'F M S', 'GK') collapsed to GK/D/M/F."""
+    # "S" marks substitute appearances and is ignored. Checked most defensive
+    # first, so a player listed as "D M" counts as a defender.
     code = (understat_position or "").upper().split()
     if "GK" in code:
         return "GK"
@@ -141,6 +147,8 @@ def position_group(understat_position: str) -> str:
 
 def transfermarkt_position_group(position: str) -> str:
     """Transfermarkt's position names collapsed the same way."""
+    # "Back" covers Centre-/Left-/Right-Back and "Midfield" every midfield
+    # role; wingers and strikers fall through to F.
     name = position or ""
     if "Goalkeeper" in name:
         return "GK"

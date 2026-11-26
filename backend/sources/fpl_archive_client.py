@@ -62,6 +62,8 @@ def get_season_players(start_year: int) -> list[dict]:
         cache_file.write_text(response.text, encoding="utf-8")
 
     frame = pd.read_csv(cache_file)
+    # Without a position column everyone becomes a forward ("F"), the same
+    # default the lookup below uses for an unknown element_type.
     if "element_type" not in frame:
         frame["element_type"] = 4
     for column, default in _STAT_COLUMNS.items():

@@ -9,13 +9,15 @@
    - every chart is interactive, and nothing is only readable on hover: each
      value is also a direct label, a stat tile, or a row in the table view.
 
-   Colour roles (validated with the skill's six-checks script, both modes):
+   Colour roles (contrast-checked in light and dark mode):
    model = green, market = ink (a neutral reference), and the direction of a
    disagreement = orange (model asks more) / blue (model asks less). Green and
    orange sit too close under protanopia (ΔE 6.2), so they are never placed in
    the same chart - the range plot uses green and ink only. */
 
 const Charts = (() => {
+  /** Compact euro amounts as football writes them: €1.2bn, €45m, €850k.
+      One decimal below €100m, trailing ".0" dropped. */
   const euro = (value) => {
     if (value >= 1e9) return `€${(value / 1e9).toFixed(1).replace(/\.0$/, "")}bn`;
     if (value >= 1e6) {
@@ -36,6 +38,8 @@ const Charts = (() => {
 
   /* --- scales ---------------------------------------------------------- */
 
+  /** A tick step near span/count, rounded to 1, 2, 2.5 or 5 times a power of
+      ten, so the axis reads €0, €25m, €50m rather than €0, €23.7m, €47.4m. */
   function niceStep(span, count) {
     const raw = span / count;
     const magnitude = 10 ** Math.floor(Math.log10(raw));
@@ -49,6 +53,7 @@ const Charts = (() => {
     const step = niceStep(Math.max(max, 1), count);
     const top = Math.ceil(max / step) * step;
     const ticks = [];
+    // Half a step of slack, so floating-point drift cannot drop the top tick.
     for (let value = 0; value <= top + step / 2; value += step) ticks.push(value);
     return { top, ticks, at: (value) => Math.max(0, Math.min(100, (value / top) * 100)) };
   }
@@ -56,10 +61,13 @@ const Charts = (() => {
   /** Values across a position span three orders of magnitude; only a log axis
       keeps the cheap ones from collapsing into a single dot at zero. */
   function logScale(min, max) {
+    // A 25% margin either side keeps the end dots off the edges, and a €10k
+    // floor stops a near-zero value from stretching the axis.
     const lo = Math.log10(Math.max(min, 1e4) / 1.25);
     const hi = Math.log10(max * 1.25);
     const ticks = [];
     for (let exponent = Math.ceil(lo); exponent <= Math.floor(hi); exponent++) {
+      // Ticks at 1x and 3x each power of ten: roughly even spacing on a log axis.
       for (const multiple of [1, 3]) {
         const value = multiple * 10 ** exponent;
         if (Math.log10(value) >= lo && Math.log10(value) <= hi) ticks.push(value);
@@ -71,6 +79,8 @@ const Charts = (() => {
     };
   }
 
+  /** How a label sits on its point: near either edge it is aligned inward so
+      it is not clipped; otherwise centred. */
   const anchor = (percent) => (percent > 86 ? "end" : percent < 14 ? "start" : "mid");
 
   /* --- range plot -------------------------------------------------------- */
@@ -136,6 +146,7 @@ const Charts = (() => {
 
   /** A stable jitter from an id, so the swarm does not reshuffle on redraw. */
   const jitter = (id) => {
+    // The common sin-hash: a fractional part that looks random but is fixed per id.
     const x = Math.sin(id * 12.9898) * 43758.5453;
     return x - Math.floor(x);
   };
@@ -158,10 +169,13 @@ const Charts = (() => {
     const dots = peers.map((p) => ({
       ...p,
       x: scale.at(p.marketValueEur),
+      // The focused player sits on the centre line; others scatter over the
+      // middle 72% of the height so dots at similar values do not stack.
       y: p.id === focusId ? 50 : 14 + jitter(p.id) * 72,
     }));
     const focus = dots.find((d) => d.id === focusId);
 
+    // The focused dot is written after the others, so it paints on top of them.
     root.innerHTML = `
       <div class="strip" role="group" aria-label="Market values of ${peers.length} players in this position">
         <div class="strip__grid" aria-hidden="true">
@@ -228,6 +242,8 @@ const Charts = (() => {
 
   /** The diverging version for the full table: centred on "no disagreement",
       growing right when the model asks more and left when it asks less. */
+  /* ``cap`` is the gap (in %) that fills a half; bigger gaps are clipped there,
+     so one wild outlier does not shrink every other bar to nothing. */
   function divergingBar(gapPct, cap = 150) {
     const half = Math.min(50, (Math.abs(gapPct) / cap) * 50);
     const direction = gapPct > 0 ? "more" : "less";
@@ -243,6 +259,7 @@ const Charts = (() => {
 const Tip = (() => {
   let el = null;
 
+  // Created on first use, so pages without charts carry no tooltip element.
   function ensure() {
     if (!el) {
       el = document.createElement("div");
@@ -265,6 +282,8 @@ const Tip = (() => {
     small.textContent = label;
     tip.append(strong, small);
     tip.hidden = false;
+    // Measured after filling, so it can be centred over the point, kept 8px
+    // inside the window, and flipped below the point when there is no room above.
     const box = tip.getBoundingClientRect();
     const left = Math.max(8, Math.min(x - box.width / 2, window.innerWidth - box.width - 8));
     const top = y - box.height - 14 < 8 ? y + 18 : y - box.height - 14;

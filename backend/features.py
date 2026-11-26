@@ -239,12 +239,15 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     below its floor. A quality measure that covers every league would fix
     that; this one cannot.
     """
+    # Every feature is only computed when absent, so callers (the CLI, the API's
+    # what-if form) can supply a derived value directly instead of raw columns.
     out = df.copy()
     out["age_squared"] = out["age"] ** 2
     for knot in AGE_KNOTS:
         out[f"age_past_{knot}"] = (out["age"] - knot).clip(lower=0)
 
     has_fpl_columns = {"fpl_minutes", "fpl_starts", "fpl_gameweeks"} <= set(out.columns)
+    # clip(lower=1) keeps the share defined before gameweek 1 has been played.
     gameweeks = out["fpl_gameweeks"].clip(lower=1) if has_fpl_columns else None
     if "minutes_share" not in out:
         out["minutes_share"] = out["fpl_minutes"] / (gameweeks * 90) if has_fpl_columns else 0.0
@@ -289,6 +292,7 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         else:
             out["nonpl_gi_per90"] = 0.0
 
+    # PL history first, other leagues as the fallback (see the docstring).
     has_pl = out["has_hist_record"] == 1
     if "career_minutes_share" not in out:
         out["career_minutes_share"] = np.where(
@@ -307,6 +311,7 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
             if "transfer_fee_eur" in out
             else 0.0
         )
+        # log1p so "no fee" (0) stays 0 rather than -inf.
         out["log_transfer_fee"] = np.log1p(fees)
 
     # Four gameweeks in, not featuring says less about a player than the
@@ -394,6 +399,8 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
             if "contract_expiry" in out
             else pd.Series(pd.NaT, index=out.index)
         )
+        # Seasons left, counting this one: a deal expiring in summer
+        # CURRENT_SEASON + 1 gives 1. Missing dates stay NaN until filled below.
         years = (expiry.dt.year - CURRENT_SEASON).clip(lower=1, upper=MAX_CONTRACT_YEARS)
         out["contract_known"] = years.notna().astype(float)
         out["log_contract_years"] = np.log(years.fillna(DEFAULT_CONTRACT_YEARS).astype(float))
@@ -422,5 +429,6 @@ def split_features_target(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
 def train_test_split_dataset(
     df: pd.DataFrame, test_size: float = 0.2, random_state: int = 42
 ):
+    """A fixed 80/20 split of features and log target, for quick checks and plots."""
     X, y = split_features_target(df)
     return train_test_split(X, y, test_size=test_size, random_state=random_state)

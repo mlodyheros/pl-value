@@ -19,6 +19,7 @@ from backend.model import out_of_fold_predictions
 
 
 def load_pipeline():
+    """The value model saved by ``python -m backend.model``."""
     return joblib.load(MODEL_PATH)
 
 
@@ -62,11 +63,17 @@ def validate_categories(pipeline, **values: str) -> None:
 
 
 def predict_for_row(pipeline, row: pd.Series) -> float:
+    """Predicted market value in EUR for one dataset row."""
+    # The model is trained on log1p(value), so undo that on the way out.
     X = prepare_features(row.to_frame().T.infer_objects())
     return float(np.expm1(pipeline.predict(X)[0]))
 
 
 def predict_player(name: str) -> None:
+    """Print predicted vs actual value for dataset players matching ``name``.
+
+    An exact (case-insensitive) match wins; otherwise any name containing it.
+    """
     df = pd.read_csv(PROCESSED_DATASET_PATH)
     matches = df[df["name"].str.lower() == name.lower()]
     if matches.empty:
@@ -140,6 +147,7 @@ def predict_manual(
             ]
         )
     )
+    # The saved pipeline is fine here: a hand-entered player was never in training.
     predicted = np.expm1(pipeline.predict(row)[0])
     print(f"Predicted value: €{predicted:,.0f}")
     for line in format_confidence(row.iloc[0], predicted, load_calibration()):

@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 
 def build_pipeline() -> Pipeline:
+    """Scaled numeric features plus one-hot club/position into a linear regression."""
+    # drop="first" avoids perfect collinearity with the intercept; unknown
+    # categories encode as all-zeros, i.e. the dropped baseline (predict.py
+    # rejects them up front for that reason).
     preprocessor = ColumnTransformer(
         [
             ("numeric", StandardScaler(), NUMERIC_FEATURES),
@@ -54,6 +58,8 @@ def value_weights(values: np.ndarray) -> np.ndarray:
 
 
 def fit_pipeline(pipeline: Pipeline, X: pd.DataFrame, y_log: pd.Series) -> Pipeline:
+    """Fit on log1p(value), weighting each player by ``value_weights``."""
+    # Weights come from euros, not logs, so undo the log1p first.
     weights = value_weights(np.expm1(y_log))
     return pipeline.fit(X, y_log, regressor__sample_weight=weights)
 
@@ -81,10 +87,16 @@ def out_of_fold_predictions(
             fitted = fit_pipeline(build_pipeline(), X.iloc[train_idx], y.iloc[train_idx])
             predicted[test_idx] = fitted.predict(X.iloc[test_idx])
         total += predicted
+    # Averaged in log space, i.e. a geometric mean of the repeats' euro figures.
     return np.expm1(total / n_repeats)
 
 
 def train(df: pd.DataFrame) -> tuple[Pipeline, dict]:
+    """Fit on the training split and score on the held-out split.
+
+    The returned pipeline is the one saved to disk; the metrics are a quick
+    sanity check, and ``cross_validate_model`` is the more reliable figure.
+    """
     X_train, X_test, y_train, y_test = train_test_split_dataset(df)
 
     pipeline = fit_pipeline(build_pipeline(), X_train, y_train)
@@ -127,6 +139,7 @@ def cross_validate_model(df: pd.DataFrame, n_splits: int = 5, random_state: int 
 
 
 def main() -> None:
+    """Train and save the value model, its calibration and diagnostic plot."""
     logging.basicConfig(level=logging.INFO)
     df = pd.read_csv(PROCESSED_DATASET_PATH)
     pipeline, metrics = train(df)

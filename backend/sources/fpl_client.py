@@ -59,6 +59,7 @@ def team_codes(data: dict) -> dict[str, str]:
 
 
 def finished_gameweeks(data: dict) -> int:
+    """Gameweeks completed so far: the denominator for this season's minutes share."""
     return sum(1 for event in data.get("events", []) if event.get("finished"))
 
 
@@ -92,5 +93,6 @@ def parse_players(data: dict) -> list[dict]:
 
 
 def get_players(refresh: bool = False) -> list[dict]:
+    """Every current FPL player as a flat record (cached; see module docstring)."""
     return parse_players(get_bootstrap_static(refresh))
 

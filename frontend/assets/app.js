@@ -1,5 +1,12 @@
 /* PL Value — talks to the backend over /api, never to the model directly.
-   Drawing lives in charts.js; this file decides what to show and when. */
+   Drawing lives in charts.js; this file decides what to show and when.
+
+   Every view lives in the address, so links, Back and reloads all work:
+     #            the board (the two "where it disagrees" lists)
+     #all?…       the full table, with its filters and sort as the query
+     #p<id>       one player
+     #c<id>,<id>  two players compared
+   route() reads the hash and draws; everything else only changes the hash. */
 
 const el = (id) => document.getElementById(id);
 const nodes = {
@@ -79,6 +86,7 @@ function positionSingular(position) {
 
 const positionPlural = (position) => `${positionSingular(position)}s`;
 
+/** GET a backend endpoint as JSON; any non-2xx status is thrown. */
 async function api(path) {
   const response = await fetch(path);
   if (!response.ok) throw new Error(`${path} returned ${response.status}`);
@@ -122,6 +130,8 @@ paintToggle();
 const SEARCH_ICON = `<svg class="finder__icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
   stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>`;
 
+/** Up to eight players for a search term: names that start with it first,
+    then anything whose name, club, position or nationality contains it. */
 function matches(term, exclude = () => false) {
   const q = term.trim().toLowerCase();
   if (q.length < 2) return [];
@@ -217,6 +227,8 @@ function finder({ input, list, onPick, exclude }) {
     input.setAttribute("aria-expanded", String(found.length > 0));
   }
 
+  // Arrow keys move a highlight through the list, wrapping at either end. Focus
+  // stays in the input; aria-activedescendant tells screen readers which is current.
   function highlight(step) {
     const all = options();
     if (!all.length) return;
@@ -248,6 +260,7 @@ function finder({ input, list, onPick, exclude }) {
 
 /** Every way into a player goes through the address, so Back always works. */
 function go(id) {
+  // Setting the hash it already has fires no hashchange, so open directly.
   if (location.hash === `#p${id}`) open(id);
   else location.hash = `p${id}`;
 }
@@ -315,6 +328,7 @@ function statTiles(player, rank) {
     </div>`;
 }
 
+/** The range plot, on a scale wide enough for the range and both dots. */
 function valuationChart(player) {
   const { range, marketValueEur: market, predictedEur: model } = player;
   const level = player.confidence.level;
@@ -334,6 +348,7 @@ function valuationChart(player) {
 
 /* --- what a club would pay -------------------------------------------- */
 
+/** Years until the contract ends (fractional), or null if it is unknown. */
 function contractYearsLeft(player) {
   if (!player.contractExpiry) return null;
   return (new Date(player.contractExpiry) - new Date()) / (365.25 * 24 * 3600 * 1000);
@@ -424,6 +439,7 @@ const MODEL_FLOOR_EUR = 2_000_000;
 const STALE_VALUE_FEE_MULTIPLE = 3;
 const RECENT_FEE_YEARS = 1.25;
 
+/** Whether the market value is likely behind a recent, much larger fee. */
 function staleValuation(player) {
   const fee = player.lastFee;
   if (!fee?.date) return false;
@@ -440,6 +456,8 @@ function missingFromSquadList(player) {
   return !thisSeason.known && premierLeague.minutes >= ESTABLISHED_PL_MINUTES;
 }
 
+/** At most one warning under the verdict, the most specific that applies:
+    each case below would make the gap mean something other than it seems. */
 function caveat(player) {
   if (missingFromSquadList(player)) {
     return `<p class="verdict__caveat">This player is not in this season’s Fantasy Premier League
@@ -492,6 +510,8 @@ function metaChips(player) {
 // season's bar means the same length on every player's page.
 const FULL_SEASON_MINUTES = 38 * 90;
 
+/** One season as a bar of minutes played, over a track of the minutes that
+    were possible; both are measured against a full 38-game season. */
 function seasonRow({ label, note, minutes, possible, detail, tip }) {
   const share = Math.min(1, minutes / FULL_SEASON_MINUTES);
   const bar = minutes
@@ -693,6 +713,8 @@ async function open(id) {
     return;
   }
 
+  // Peers come from the list already loaded, not another request. Rank is
+  // 1 + those worth more, so players on the same value share a rank.
   const peers = everyone.filter((p) => p.position === player.position);
   const rank = peers.filter((p) => p.marketValueEur > player.marketValueEur).length + 1;
   const backTo = boardPlace?.hash ?? "";
@@ -903,6 +925,7 @@ function rankList(target, players, largest) {
   });
 }
 
+// Comparators for the table's sort options; figures sort largest first.
 const sorters = {
   value: (a, b) => b.marketValueEur - a.marketValueEur,
   predicted: (a, b) => b.predictedEur - a.predictedEur,
@@ -979,6 +1002,7 @@ function renderGrid() {
   nodes.gridRows.appendChild(fragment);
 }
 
+/** The table's current filters and sort as a hash, leaving defaults out. */
 function gridHash() {
   const params = new URLSearchParams();
   if (nodes.filterClub.value) params.set("club", nodes.filterClub.value);
@@ -990,6 +1014,7 @@ function gridHash() {
   return query ? `all?${query}` : "all";
 }
 
+/** The reverse of gridHash: set the controls from the hash's query. */
 function applyGridHash(query) {
   const params = new URLSearchParams(query);
   nodes.filterClub.value = params.get("club") ?? "";
@@ -1001,6 +1026,7 @@ function applyGridHash(query) {
   reversed = params.get("order") === "reverse";
 }
 
+/** Show the board's "gaps" or "all" view; ``push`` also records it in the address. */
 function switchView(view, { push = true, limit = FIRST_PAGE } = {}) {
   for (const button of document.querySelectorAll(".view")) {
     button.setAttribute("aria-pressed", String(button.dataset.view === view));
@@ -1014,6 +1040,7 @@ function switchView(view, { push = true, limit = FIRST_PAGE } = {}) {
   if (push) location.hash = view === "all" ? gridHash() : "";
 }
 
+/** Draw whatever the address names (see the top of this file). */
 function route() {
   const hash = location.hash.slice(1);
 
@@ -1073,6 +1100,7 @@ function markRecent(id) {
       api("/api/rankings?limit=8"),
     ]);
     everyone = players;
+    // meta.seasons are the completed seasons; the one being played follows them.
     thisSeason = Math.max(...meta.seasons) + 1;
 
     nodes.stat.textContent = `${meta.players} players · ${meta.clubs} clubs`;
